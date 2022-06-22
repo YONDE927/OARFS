@@ -1,3 +1,17 @@
+Remotefs/mirrors/*
+*server
+*RemoteFS
+*test
+*test-conn
+*test-util
+*test-mirror
+mnt
+
+*.db
+*.a
+*.swp
+*.config
+
 # Prerequisites
 *.d
 
