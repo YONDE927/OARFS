@@ -5,8 +5,14 @@ Remotefs/mirrors/*
 *test-conn
 *test-util
 *test-mirror
+*.req
 mnt
+dbstudy
+*.python_version
 
+__pycache__
+.mypy_cache
+.python_version
 *.db
 *.a
 *.swp

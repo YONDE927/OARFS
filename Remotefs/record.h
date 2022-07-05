@@ -1,20 +1,19 @@
 #pragma once
 
-#include <sqlite3.h>
+#include <postgresql/libpq-fe.h>
 
-typedef struct Record {
-    sqlite3* session;
+typedef struct{
+    char dbname[256];
+} RecordConfig;
+
+typedef struct{
+    PGconn* session;
+    RecordConfig* config;
 } Record;
 
 Record* newRecord();
 void freeRecord(Record* record);
-void resetRecord(sqlite3* dbsession);
-
-//DB接続初期化
-int initRecordSession(const char *filename, sqlite3 **ppDb);
-
-/*DB接続を終了*/
-int closeRecordSession(Record* record);
+void resetRecord(PGconn* session);
 
 /*DBテーブルを作成*/
 int createRecordTable(Record* record);

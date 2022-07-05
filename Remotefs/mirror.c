@@ -11,32 +11,33 @@
 
 #define BLOCK_SIZE 4048 //4KB
 
-int initDbSession(const char *filename, sqlite3 **ppDb);
-int closeDbSession(sqlite3* pDb);
-int createMirrorTable(sqlite3* dbsession);
-int getMirrorUsedStorage(sqlite3* dbsession);
+void loadmirrordbconfig(Mirror* mirror);
+int initDbSession(Mirror* mirror);
+int closeDbSession(Mirror* mirror);
+int createMirrorTable(Mirror* mirror);
+int getMirrorUsedStorage(Mirror* mirror);
 MirrorTask* createTask(const char* path);
 void freeMirrorTask(void* task);
 
-Mirror* constructMirror(char* dbname, char* root, char* connfig){
+Mirror* constructMirror(char* root, char* config){
     int rc;
     Mirror* mirror;
     Connector* connector;
 
     mirror = malloc(sizeof(Mirror));
-    rc = initDbSession(dbname, &(mirror->dbsession));
+    rc = initDbSession(mirror);
     if(rc < 0){
         return NULL;
     }
 
-    rc = createMirrorTable(mirror->dbsession);
+    rc = createMirrorTable(mirror);
     if(rc < 0){
         return NULL;
     }
 
-    connector = getMirrorConnector(connfig);
+    connector = getMirrorConnector(config);
 
-    mirror->root = strdup(root);
+    strncpy(mirror->root, root, strlen(root) + 1);
 
     mirror->killswitch = 0;
 
@@ -67,11 +68,10 @@ void freeMirror(Mirror* mirror){
     mirror->killswitch = 1;
     pthread_cond_signal(mirror->list_cond);
     pthread_join(mirror->taskthread, NULL);
-    free(mirror->root);
     pthread_rwlock_destroy(mirror->task_rwlock);
     pthread_mutex_destroy(mirror->list_lock);
     pthread_cond_destroy(mirror->list_cond);
-    closeDbSession(mirror->dbsession);
+    closeDbSession(mirror);
     freeList(mirror->tasklist, freeMirrorTask);
 }
 
@@ -79,7 +79,7 @@ MirrorFile* constructMirrorFile(const char* path, struct stat st){
     MirrorFile* file;
     
     file = malloc(sizeof(MirrorFile));
-    file->path = strdup(path);
+    strncpy(file->path, path, strlen(path) + 1);
     file->mtime = st.st_mtime;
     file->atime = st.st_atime;
     file->size = st.st_size;
@@ -96,7 +96,6 @@ void showMirrorFile(MirrorFile* file){
 
 void freeMirrorFile(MirrorFile* file){
     if(file != NULL){
-        free(file->path);
         free(file);
     }
 }
@@ -164,246 +163,246 @@ char* getMirrorPath(Mirror* mirror, const char* path){
 /* DBに関するコード群 */
 /**********************/
 
+void loadmirrordbconfig(Mirror* mirror){
+    char ch;
+    FILE* file;
+    int count = 0;
+
+    file = fopen("config/db.config", "r");
+    if(file == NULL){
+        return;
+    }
+
+    ch = getc(file);
+    while((ch != EOF) && (ch != '\n'))
+    {
+        mirror->dbname[count] = ch;    
+        ch = getc(file);
+        count ++;
+    }
+    mirror->dbname[count] = '\0';
+}
+
 /*DBセッションを開始*/
-int initDbSession(const char *filename, sqlite3 **ppDb){
-    int rc;
+int initDbSession(Mirror* mirror){
+    const char** dbkey;
+    const char** dbval;
 
-    //sqlite3のスレッド対応
-    rc = sqlite3_initialize();
-    rc = sqlite3_config(SQLITE_CONFIG_SERIALIZED);
+    if(mirror == NULL){return -1;}
+    dbkey = malloc(1 * sizeof(char*));
+    dbval = malloc(1 * sizeof(char*));
+    dbkey[0] = "dbname"; dbval[0] = mirror->dbname; 
 
-    rc = sqlite3_open(filename, ppDb);
-    if(rc){
-        sqlite3_close(*ppDb);
-        return -1;
+    mirror->dbsession = PQconnectdbParams(dbkey, dbval, 1);
+    if(mirror->dbsession == NULL){
+        puts("connect db error");
+        exit(0);
     }
     return 0;
 }
 
 /*DBセッションを終了*/
-int closeDbSession(sqlite3* pDb){
-    int rc;
-    sqlite3_close(pDb);
-    return 0;
-}
-
-/*DBの状態を確認。現在はただバージョンを返す。*/
-int getDbStatus(sqlite3* pdb){
-    int rc;
-    sqlite3_stmt *res;
-
-    rc = sqlite3_prepare_v2(pdb, "SELECT SQLITE_VERSION()", -1, &res, 0);
-    if(rc != SQLITE_OK){
-        printf("db stmt failed.\n");
-        sqlite3_finalize(res);
-        return -1;
-    }
-    
-    rc = sqlite3_step(res);
-    if(rc == SQLITE_ROW){
-        printf("%s\n", sqlite3_column_text(res, 0));
-    }
-
-    sqlite3_finalize(res);
+int closeDbSession(Mirror* mirror){
+    if(mirror == NULL){return -1;}
+    PQfinish(mirror->dbsession);
     return 0;
 }
 
 /*ミラー用のDBテーブルを作成*/
-int createMirrorTable(sqlite3* dbsession){
+int createMirrorTable(Mirror* mirror){
     int rc;
-    sqlite3_stmt *stmt;
 
-    if(dbsession == NULL){
+    if(mirror == NULL){return -1;}
+
+    if(mirror->dbsession == NULL){
         printf("createMirrorTable failed\n");
         return -1;
     }
+
+    PGresult* res;
     
     //sql text
-    rc = sqlite3_prepare_v2(dbsession, 
-            "CREATE TABLE IF NOT EXISTS Mirrors"
-            "(path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER"
-            ", atime INTEGER, ref_cnt INTEGER);",
-            -1, &stmt, 0);
-    if(rc != SQLITE_OK){
-        printf("invalid sql\n");
-        sqlite3_finalize(stmt);
+    res = PQexec(mirror->dbsession, "CREATE TABLE IF NOT EXISTS Mirror(path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, atime INTEGER, ref_cnt INTEGER);");
+
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
         return -1;
-    }
+    };
 
-    //exectute
-    rc = sqlite3_step(stmt);
-    if(rc != SQLITE_DONE){
-        printf("createMirrorTable failed\n");
-        sqlite3_finalize(stmt);
-    }
-
-    //end
-    sqlite3_finalize(stmt);
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
+        return -1;
+    };
+    PQclear(res);
+    
     return 0;
 }
 
 /*ミラーファイルの挿入*/
-int insertMirrorFileToDB(sqlite3* dbsession, MirrorFile* file){
-    int rc;
-    sqlite3_stmt* stmt;
+int insertMirrorFileToDB(Mirror* mirror, MirrorFile* file){
+    PGresult* res;
 
+    if(mirror == NULL){return -1;}
     //sql text
-    rc = sqlite3_prepare_v2(dbsession, 
-            "REPLACE INTO Mirrors VALUES "
-            "( ?, ?, ?, ?, ?);",
-            -1, &stmt, 0);
-    if(rc != SQLITE_OK){
-        printf("invalid sql\n");
-        sqlite3_finalize(stmt);
-        return -1;
-    }else{
-        sqlite3_bind_text(stmt, 1, file->path, -1, 0);
-        sqlite3_bind_int(stmt, 2, file->size);
-        sqlite3_bind_int(stmt, 3, file->mtime);
-        sqlite3_bind_int(stmt, 4, file->atime);
-        sqlite3_bind_int(stmt, 5, file->ref_cnt);
-    }
+    int paramlength[] = {0, sizeof(int), sizeof(int), sizeof(int), sizeof(int)};
+    int paramformat[] = {0, 1, 1, 1, 1};
+    int size, mtime, atime, ref_cnt;
 
-    //exectute
-    rc = sqlite3_step(stmt);
-    if(rc != SQLITE_DONE){
-        printf("insertMirrorFile fail.\n");
-        sqlite3_finalize(stmt);
-        return -1;
-    }
+    size = htonl(file->size);
+    mtime = htonl(file->mtime);
+    atime = htonl(file->atime);
+    ref_cnt = htonl(file->ref_cnt);
 
-    //end
-    sqlite3_finalize(stmt);
+    const char* vals[] = { file->path, (char*)&size, (char*)&mtime, (char*)&atime, (char*)&ref_cnt};
+
+    res = PQexecParams(mirror->dbsession,
+                       "REPLACE INTO Mirror VALUES($1,$2,$3,$4,$5);",
+                       5,           /* パラメータは1つ。 */
+                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
+                       vals,
+                       paramlength,        /* テキストのため、パラメータ長は不要。 */
+                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
+                       0);          /* バイナリ結果を要求。 */
+
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
+        return -1;
+    };
+    PQclear(res);
     return 0;
 }
 
 /*ミラーファイルの検索*/
-MirrorFile* lookupMirrorFileFromDB(sqlite3* dbsession, const char* path){
+MirrorFile* lookupMirrorFileFromDB(Mirror* mirror, const char* path){
     int rc;
-    sqlite3_stmt* stmt;
     MirrorFile* file;
 
     //sql text
-    rc = sqlite3_prepare_v2(dbsession, 
-            "SELECT * FROM Mirrors WHERE "
-            "path = ?;",
-            -1, &stmt, 0);
-    if(rc != SQLITE_OK){
-        printf("invalid sql\n");
-        sqlite3_finalize(stmt);
+    PGresult* res;
+
+    if(mirror == NULL){return NULL;}
+    //sql text
+    int paramlength[] = {0};
+    int paramformat[] = {0};
+    const char* vals[] = {path};
+
+    res = PQexecParams(mirror->dbsession,
+                       "SELECT * FROM Mirror where path = $1", 
+                       1,           /* パラメータは1つ。 */
+                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
+                       vals,
+                       paramlength,        /* テキストのため、パラメータ長は不要。 */
+                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
+                       0);          /* バイナリ結果を要求。 */
+
+    if(PQresultStatus(res) != PGRES_TUPLES_OK){
+        PQclear(res);
         return NULL;
-    }else{
-        sqlite3_bind_text(stmt, 1, path, -1, 0);
-    }
-    //exectute
-    rc = sqlite3_step(stmt);
-    if(rc != SQLITE_ROW){
-        printf("lookupMirrorFileFromDB %s fail.\n", path);
-        file = NULL;
-    }else{
-        file = malloc(sizeof(MirrorFile));
-        file->path = strdup((const char*)sqlite3_column_text(stmt, 0));
-        file->size = sqlite3_column_int(stmt, 2);
-        file->mtime = sqlite3_column_int(stmt, 3);
-        file->atime = sqlite3_column_int(stmt, 4);
-        file->ref_cnt = sqlite3_column_int(stmt, 5);
-        file->fd = -1;
     }
 
-    sqlite3_finalize(stmt);
+    //問い合わせの取り出し
+    if(PQntuples(res) < 1){
+        PQclear(res);
+        return NULL;
+    }
+    
+    file = malloc(sizeof(MirrorFile)); 
+    if(file == NULL){ 
+        PQclear(res);
+        return NULL;
+    }
+    strncpy(file->path, path, strlen(path) + 1);
+    file->size = atoi(PQgetvalue(res, 0, 1));
+    file->mtime = atoi(PQgetvalue(res, 0, 2));
+    file->atime = atoi(PQgetvalue(res, 0, 3));
+    file->ref_cnt = atoi(PQgetvalue(res, 0, 4));
+    file->fd = -1;
+
+    PQclear(res);
     return file;
 }
 
 /*ミラーファイルの削除*/
-int deleteMirrorFileFromDB(sqlite3* dbsession, MirrorFile* file){
-    int rc;
-    sqlite3_stmt* stmt;
-
+int deleteMirrorFileFromDB(Mirror* mirror, MirrorFile* file){
     if(file == NULL){
         return -1;
     }
 
     //sql text
-    rc = sqlite3_prepare_v2(dbsession, 
-            "DELETE FROM Mirrors WHERE "
-            "path = ?;",
-            -1, &stmt, 0);
-    if(rc != SQLITE_OK){
-        printf("invalid sql\n");
-        sqlite3_finalize(stmt);
-        return -1;
-    }else{
-        sqlite3_bind_text(stmt, 1, file->path, -1, 0);
-    }
-    //exectute
-    rc = sqlite3_step(stmt);
-    if(rc != SQLITE_DONE){
-        printf("delete MirrorFile fail.\n");
-        sqlite3_finalize(stmt);
-        return -1;
-    }
-    sqlite3_finalize(stmt);
-    return 0;
-}
+    PGresult* res;
 
-/*結果表示用関数*/
-int showCallback(void* Notused, int argc, char** argv, char **azColName){
-    Notused = 0;
-    for(int i = 0; i < argc; i++){
-        printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : NULL);
+    if(mirror == NULL){return -1;}
+    //sql text
+    int paramlength[] = {0};
+    int paramformat[] = {0};
+    const char* vals[] = {};
+
+    res = PQexecParams(mirror->dbsession,
+                       "DELETE FROM Mirror where path = $1", 
+                       1,           /* パラメータは1つ。 */
+                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
+                       vals,
+                       paramlength,        /* テキストのため、パラメータ長は不要。 */
+                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
+                       0);          /* バイナリ結果を要求。 */
+
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
+        return -1;
     }
-    printf("\n");
+    PQclear(res);
     return 0;
 }
 
 /*自由な検索*/
-int customQuery(sqlite3* dbsession, char* query){
-    int rc;
-    char* errmsg = 0;
+int customQuery(Mirror* mirror, char* query){
+    PGresult* res;
+    //sql text
+    res = PQexec(mirror->dbsession, query);
 
-    rc = sqlite3_exec(dbsession, query, showCallback, 0, &errmsg);
-    if(rc != SQLITE_OK){
-        printf("customQuery failed.\n");
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
         return -1;
     }
+    PQclear(res);
     return 0;
 }
 
 /*ミラーファイルの数*/
-int getMirrorFileNum(sqlite3* dbsession){
-    int rc;
+int getMirrorFileNum(Mirror* mirror){
+    PGresult* res;
+    int num;
     
-    rc = customQuery(dbsession, "SELECT COUNT(*) FROM Mirrors;");
-    return rc;
+    res = PQexec(mirror->dbsession, "SELECT COUNT(*) FROM Mirror;");
+
+    if(PQresultStatus(res) != PGRES_TUPLES_OK){
+        PQclear(res);
+        return -1;
+    }
+    num = atoi(PQgetvalue(res, 0, 0));
+    PQclear(res);
+    return num;
 }
 
 /*ミラーストレージの使用量*/
-int getMirrorUsedStorage(sqlite3* dbsession){
-    int rc;
-    sqlite3_stmt* stmt;
-
+int getMirrorUsedStorage(Mirror* mirror){
+    int sum;
     //sql text
-    rc = sqlite3_prepare_v2(dbsession, 
-            "SELECT SUM(SIZE) FROM Mirrors;",
-            -1, &stmt, 0);
-    if(rc != SQLITE_OK){
-        printf("invalid sql\n");
+    PGresult* res;
+    res = PQexec(mirror->dbsession, "SELECT SUM(SIZE) FROM Mirror;");
+
+    if(PQresultStatus(res) != PGRES_TUPLES_OK){
+        PQclear(res);
         return -1;
     }
-    //exectute
-    rc = sqlite3_step(stmt);
-    if(rc != SQLITE_ROW){
-        printf("getMirrorUsedStorage fail.\n");
-        return -1;
-    }else{
-        rc = sqlite3_column_int(stmt, 0);
-    }
-    return rc;
+    sum = atoi(PQgetvalue(res, 0, 0));
+    PQclear(res);
+    return sum;
 }
 
 /*DBのリセット*/
-void resetMirrorDB(sqlite3* dbsession){
-    customQuery(dbsession, "DELETE FROM mirrors;");
+void resetMirrorDB(Mirror* mirror){
+    customQuery(mirror, "DELETE FROM mirror;");
 }
 
 /****************************/
@@ -477,7 +476,7 @@ MirrorTask* createTask(const char* path){
     task = malloc(sizeof(MirrorTask));
     task->file = constructMirrorFile(path, attribute->st);
     task->st = attribute->st;
-    task->path = strdup(path);
+    strncpy(task->path, path, strlen(path) + 1);
     task->block_num = attribute->st.st_size / BLOCK_SIZE + 1;
     task->iterator = 0;
 
@@ -489,7 +488,6 @@ MirrorTask* createTask(const char* path){
 /*タスクの解放*/
 void freeMirrorTask(void* pointer){
     MirrorTask* task = pointer;
-    free(task->path);
     freeMirrorFile(task->file);
     free(task);
 }
@@ -519,7 +517,7 @@ int execTask(Mirror* mirror, MirrorTask* task){
     printf("execTask %s\n", path);
 
     //すでに持っているか
-    tmp = lookupMirrorFileFromDB(mirror->dbsession, task->path);
+    tmp = lookupMirrorFileFromDB(mirror, task->path);
     if(tmp != NULL){
         //持っている
         printf("execTask have %s\n", path);
@@ -568,11 +566,12 @@ int execTask(Mirror* mirror, MirrorTask* task){
     rc = connClose(filesession);
     if(rc < 0){
         puts("connClose on execTask fail");
+        free(mirrorpath);
         return -1;
     }
 
     //DBへ登録
-    rc = insertMirrorFileToDB(mirror->dbsession, file);
+    rc = insertMirrorFileToDB(mirror, file);
     if(rc < 0){
         free(mirrorpath);
         return -1;
@@ -692,14 +691,14 @@ void request_mirror(Mirror* mirror, const char* path){
 }
 
 MirrorFile* search_mirror(Mirror* mirror, const char* path){
-    return lookupMirrorFileFromDB(mirror->dbsession, path);
+    return lookupMirrorFileFromDB(mirror, path);
 }
 
 
 void check_mirror(Mirror* mirror, const char* path){
     int rc;
     
-    rc = getMirrorFileNum(mirror->dbsession);
+    rc = getMirrorFileNum(mirror);
 }
 
 /*MirrorFileをオープンし、ファイルディスクリプタを返す*/
@@ -783,3 +782,11 @@ int closeMirrorFile(MirrorFile* file){
 /*インターフェースに関するコードここまで*/
 /****************************************/
 
+/**********************************************/
+/*バッググラウンドミラープロセスに関するコード*/
+/**********************************************/
+
+//ミラー要求ファイル監視関数
+
+//ミラープロセス用関数
+//プロセス内で新しいミラー構造体を生成する。ループで要求を受け付けてタスクに追加

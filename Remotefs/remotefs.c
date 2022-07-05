@@ -22,15 +22,15 @@ typedef struct FileHandler
 typedef struct FsData
 {
     IntMap* FhMap;
-    char* RemoteRoot;
+    char RemoteRoot[256];
     Mirror* mirror;
     Record* record;
 } FsData;
 
 typedef struct Args
 {
-    char* RemoteRoot;
-    char* Connfig;
+    char RemoteRoot[256];
+    char config[256];
 } Args;
 
 Args* getArgs(char* RemoteRoot, char* SshConfig)
@@ -42,17 +42,13 @@ Args* getArgs(char* RemoteRoot, char* SshConfig)
         args = malloc(sizeof(Args));
         if(RemoteRoot != NULL)
         {
-            len = strlen(RemoteRoot);
-            args->RemoteRoot = malloc(sizeof(char) * (len + 1)); 
+            len = strlen(RemoteRoot) + 1;
             strncpy(args->RemoteRoot, RemoteRoot, len);
-            args->RemoteRoot[len] = '\0';
         }
         if(SshConfig != NULL)
         {
-            len = strlen(SshConfig);
-            args->Connfig = malloc(sizeof(char) * (len + 1)); 
-            strncpy(args->Connfig, SshConfig, len);
-            args->Connfig[len] = '\0';
+            len = strlen(SshConfig) + 1;
+            strncpy(args->config, SshConfig, len);
         }
     }
     return args;
@@ -81,7 +77,7 @@ FsData* getFsData()
         fs = malloc(sizeof(FsData));
         fs->FhMap = newIntMap();
         //SSH接続とSFTPセッションの確立 
-        connecotor = getConnector(args->Connfig);
+        connecotor = getConnector(args->config);
         if(connecotor == NULL)
         {
             printf("SSH session is not established\n");
@@ -89,16 +85,13 @@ FsData* getFsData()
         }
 
         //FsDataにリモートサーバーのルートパスを設定
-        len = strlen(args->RemoteRoot);
-        fs->RemoteRoot = malloc(sizeof(char) * (len + 1)); 
+        len = strlen(args->RemoteRoot) + 1;
         strncpy(fs->RemoteRoot, args->RemoteRoot, len);
-        fs->RemoteRoot[len] = '\0';
 
         //FsDataにMirrorを設定
-        realpath("./db/mirror.db", dbpath);
         realpath("./mirrors", mirrorpath);
-        fs->mirror = constructMirror(dbpath, mirrorpath, args->Connfig);
-        resetMirrorDB(fs->mirror->dbsession);
+        fs->mirror = constructMirror(mirrorpath, args->config);
+        resetMirrorDB(fs->mirror);
         rc = startMirroring(fs->mirror);
         if(rc < 0){
             printf("startMirroring fail\n");
