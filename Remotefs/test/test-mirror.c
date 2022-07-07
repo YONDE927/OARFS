@@ -17,14 +17,14 @@ int main(int argc, char** argv){
     sshconfig = argv[1];
     conn = getConnector(sshconfig);
 
-    mirror = constructMirror("db/sample.db", "mirrors", sshconfig); 
+    mirror = constructMirror("mirrors", sshconfig); 
     if(mirror == NULL){
         printf("constructMirror fail\n");
         exit(EXIT_FAILURE);
     }
 
     //reset db
-    resetMirrorDB(mirror->dbsession);
+    resetMirrorDB(mirror);
 
     //mirror thread
     startMirroring(mirror);

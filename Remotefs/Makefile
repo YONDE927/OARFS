@@ -5,8 +5,8 @@ LIBD = -L../shared -L../Oarfts
 MACRO = -DRAW
 
 #remotefs
-all: conn mirror record test fts
-	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o RemoteFS remotefs.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)record.o -lssh -lfuse3 -lpthread -lsqlite3 -lutil -lfts -lattr
+all: conn mirror record test fts mirrorserver
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o RemoteFS remotefs.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)record.o -lfuse3 -lpthread -lutil -lfts -lattr -lpq
 	rm $(OBJD)*.o
 
 #conn
@@ -31,6 +31,11 @@ test: test-conn test-mirror
 	echo "Hello connRead test." > /tmp/connRead.txt
 	touch /tmp/connWrite.txt
 test-conn: conn fts
-	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-conn test/test-conn.c $(OBJD)conn.o -lssh -lpthread -lfts -lutil -lattr
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-conn test/test-conn.c $(OBJD)conn.o -lpthread -lfts -lutil -lattr 
 test-mirror: mirror fts
-	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-mirror test/test-mirror.c $(OBJD)mirror.o $(OBJD)conn.o -lssh -lpthread -lsqlite3 -lfts -lutil -lattr
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-mirror test/test-mirror.c $(OBJD)mirror.o $(OBJD)conn.o -lpthread -lfts -lutil -lattr -lpq
+
+#mirrorserver
+mirrorserver: conn fts mirror
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o mirrorserver mirrorserver.c $(OBJD)conn.o $(OBJD)mirror.o -lpthread -lpq -lutil -lfts -lattr
+

@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/types.h>
+#include <sys/file.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -426,8 +427,7 @@ Connector* getMirrorConnector(char* configpath)
         pthread_mutex_init(&(connector->mutex),NULL);
         pthread_mutex_lock(&(connector->mutex));
 
-        if(loadConnOption(configpath, authinfo) < 0)
-        {
+        if(loadConnOption(configpath, authinfo) < 0){
             printf("loadConnOption failed.\n");
             pthread_mutex_unlock(&(connector->mutex));
             return NULL;
@@ -787,6 +787,54 @@ int closeMirrorFile(MirrorFile* file){
 /**********************************************/
 
 //ミラー要求ファイル監視関数
+void readMirrorRequest(Mirror* mirror, FILE* fi){
+    int nread;
+    size_t len;
+    char* line;
+    if(mirror == NULL){return;}
+    if(fi == NULL){return;}
+
+    while(mirror->killswitch == 0){
+        flock(fileno(fi), LOCK_EX);
+        fseek(fi, SEEK_SET, 0);
+        while((nread = getline(&line, &len, fi)) != -1){
+            if(nread > 0){
+                line[nread - 1] = '\0';
+                request_mirror(mirror, line);
+                free(line);
+            }
+        }
+        ftruncate(fileno(fi), 0);
+        flock(fileno(fi), LOCK_UN);
+        sleep(5);
+    }
+}
 
 //ミラープロセス用関数
 //プロセス内で新しいミラー構造体を生成する。ループで要求を受け付けてタスクに追加
+void* mirrorProcess(){
+    int rc;
+    Mirror* mirror;
+    char mirrorpath[256];
+    char configpath[256];
+    FILE* fi;
+
+    realpath("./mirrors", mirrorpath);
+    realpath("./config/raw.config", configpath);
+    mirror = constructMirror(mirrorpath, configpath);
+    rc = startMirroring(mirror);
+
+    fi = fopen("./mirror.req", "w+");
+    readMirrorRequest(mirror, fi);
+}
+
+
+
+
+
+
+
+
+
+
+

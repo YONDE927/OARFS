@@ -74,8 +74,6 @@ Connector* getConnector(char* configpath)
             printf("loadConnOption failed.\n");
             free(connector);
             free(authinfo);
-            connector = NULL;
-            authinfo = NULL;
             pthread_mutex_unlock(&(connector->mutex));
             return NULL;
         }
@@ -84,8 +82,6 @@ Connector* getConnector(char* configpath)
             printf("connection cannot be established\n");
             free(connector);
             free(authinfo);
-            connector = NULL;
-            authinfo = NULL;
             pthread_mutex_unlock(&(connector->mutex));
             return NULL;
         }
