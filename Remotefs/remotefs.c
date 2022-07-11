@@ -1,10 +1,3 @@
-#include "remotefs.h"
-#include "conn.h"
-#include "list.h"
-#include "map.h"
-#include "attr.h"
-#include "mirror.h"
-#include "record.h"
 #include <fuse3/fuse.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -12,71 +5,59 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct FileHandler 
-{
-    off_t offset;
-    FileSession* session;
-    MirrorFile* mfile;
-} FileHandler;
+#include "remotefs.h"
+#include "config.h"
 
-typedef struct FsData
-{
-    IntMap* FhMap;
-    char RemoteRoot[256];
-    Mirror* mirror;
-    Record* record;
-} FsData;
+FsConfig* loadFsConfig(char* path){
+    char* remoteroot;
+    char* mountpoint;
+    FILE* file;
+    FsConfig* config;
 
-typedef struct Args
-{
-    char RemoteRoot[256];
-    char config[256];
-} Args;
+    if(path == NULL){ return NULL; }
 
-Args* getArgs(char* RemoteRoot, char* SshConfig)
-{
-    static Args* args = NULL;
-    int len;
-    if(args == NULL)
-    {
-        args = malloc(sizeof(Args));
-        if(RemoteRoot != NULL)
-        {
-            len = strlen(RemoteRoot) + 1;
-            strncpy(args->RemoteRoot, RemoteRoot, len);
-        }
-        if(SshConfig != NULL)
-        {
-            len = strlen(SshConfig) + 1;
-            strncpy(args->config, SshConfig, len);
-        }
+    file = fopen(path, "r");
+    if(file == NULL){ return NULL; }
+
+    config = malloc(sizeof(FsConfig));
+    if(config == NULL){
+        fclose(file);
+        return NULL;
     }
-    return args;
+
+    strncpy(config->path, path, strlen(path) + 1);
+
+    if((remoteroot = searchOptionKey(file, "REMOTEROOT")) != NULL){
+        strncpy(config->RemoteRoot, remoteroot, strlen(remoteroot) + 1);
+        free(remoteroot);
+    }else{
+        fclose(file);
+        free(config);
+        return NULL;
+    }
+
+    if((mountpoint = searchOptionKey(file, "MOUNTPOINT")) != NULL){
+        strncpy(config->MountPoint , mountpoint, strlen(mountpoint) + 1);
+        free(mountpoint);
+    }else{
+        fclose(file);
+        free(config);
+        return NULL;
+    }
+
+    fclose(file);
+    
+    return config;
 }
 
-FsData* getFsData()
-{
+int initFsData(char* configpath){
     int rc;
 
-    static FsData* fs = NULL;
-    if(fs == NULL)
-    {
-        int len;
-        Args* args;
-        Connector* connecotor;
-        char dbpath[256];
-        char mirrorpath[256];
+    if(fsdata.initiated == 0){
+        fsdata.config = loadFsConfig(configpath);
+        if(fsdata.config == NULL){ return -1; }
 
-        args = getArgs(NULL,NULL);
-        if(args == NULL)
-        {
-            printf("no args\n");
-            exit(EXIT_FAILURE);
-        }
-
-        fs = malloc(sizeof(FsData));
-        fs->FhMap = newIntMap();
-        //SSH接続とSFTPセッションの確立 
+        fsdata.FhMap = newIntMap();
         connecotor = getConnector(args->config);
         if(connecotor == NULL)
         {
@@ -112,20 +93,17 @@ Mirror* getMirror(){
 }
 
 
-IntMap* getFhMap()
-{
+IntMap* getFhMap(){
     FsData* fs = getFsData();
     return fs->FhMap;
 }
 
-char* getRoot()
-{
+char* getRoot(){
     FsData* fs = getFsData();
     return fs->RemoteRoot;
 }
 
-char* patheditor(const char* path)
-{
+char* patheditor(const char* path){
     int len1, len2;
     char* root,* buffer;
    
@@ -140,8 +118,7 @@ char* patheditor(const char* path)
     return buffer;
 }
 
-int fuseGetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
-{
+int fuseGetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi){
     //printf("getattr %s\n",path);
     Attribute* attr;
     char* RemotePath;
@@ -160,8 +137,7 @@ int fuseGetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
     return 0;
 }
 
-int pair_max(int a,int b)
-{
+int pair_max(int a,int b){
     if(a > b){
         return a;
     }else{
@@ -169,8 +145,7 @@ int pair_max(int a,int b)
     }
 }
 
-int max(int tmp, int* li, int size)
-{
+int max(int tmp, int* li, int size){
     if(size <= 1){
         return pair_max(tmp, li[0]);
     }else{
@@ -180,8 +155,7 @@ int max(int tmp, int* li, int size)
     }
 }
 
-int newhandler(IntMap* map)
-{
+int newhandler(IntMap* map){
     int map_size,ind,fh,top;
     int* fhs;
     if(map == NULL)
@@ -204,8 +178,7 @@ int newhandler(IntMap* map)
     return top;
 }
 
-int fuseOpen(const char *path, struct fuse_file_info *fi)
-{
+int fuseOpen(const char *path, struct fuse_file_info *fi){
     int map_size;
     int rc,ind,fh;
     char* RemotePath;
@@ -310,8 +283,7 @@ int fuseRead(const char *path, char *buffer, size_t size, off_t offset, struct f
     return rc;
 }
 
-int fuseWrite(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi)
-{
+int fuseWrite(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi){
     FsData* fs;
     IntMap* FhMap;
     FileHandler* fh;
@@ -360,8 +332,7 @@ int fuseWrite(const char *path, const char *buffer, size_t size, off_t offset, s
     return rc;    
 }
 
-int fuseRelease(const char *path, struct fuse_file_info *fi)
-{
+int fuseRelease(const char *path, struct fuse_file_info *fi){
     FsData* fs;
     IntMap* FhMap;
     FileHandler* fh;
@@ -405,8 +376,7 @@ int fuseRelease(const char *path, struct fuse_file_info *fi)
     return 0;    
 }
 
-int fuseReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
-{
+int fuseReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags){
     List* attrs;
     char* RemotePath;
     Attribute* attr;
@@ -432,13 +402,11 @@ int fuseReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
     return 0;    
 }
 
-void* fuseInit(struct fuse_conn_info *conn, struct fuse_config *cfg)
-{
+void* fuseInit(struct fuse_conn_info *conn, struct fuse_config *cfg){
     return NULL;
 }
 
-void fuseDestory(void *private_data)
-{
+void fuseDestory(void *private_data){
     FsData* fs;
 
     fs = private_data;
@@ -446,8 +414,7 @@ void fuseDestory(void *private_data)
     free(fs);
 }
 
-off_t fuseLseek(const char *path, off_t offset, int whence, struct fuse_file_info *fi)
-{
+off_t fuseLseek(const char *path, off_t offset, int whence, struct fuse_file_info *fi){
     IntMap* FhMap;
     FileHandler* fh;
     int rc;
@@ -467,8 +434,7 @@ off_t fuseLseek(const char *path, off_t offset, int whence, struct fuse_file_inf
     return fh->offset;
 }
 
-static struct fuse_operations fuseOper = 
-{
+struct fuse_operations fuseOper = {
     .getattr = fuseGetattr,
     .open = fuseOpen,
     .read = fuseRead,
@@ -481,8 +447,7 @@ static struct fuse_operations fuseOper =
     .lseek = fuseLseek
 };
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]){
     Args* args;
     FsData* fs;
     int i, new_argc;
