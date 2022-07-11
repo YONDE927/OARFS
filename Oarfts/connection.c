@@ -23,7 +23,21 @@ int getServerSock(short port){
     }
 
     //ソケット設定
-    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+    struct timeval timeout;
+    timeout.tv_sec = 5;
+    timeout.tv_usec = 0;
+
+    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes)) < 0){
+        return -1;
+    }
+
+    if(setsockopt (listenfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
+        return -1;
+    }
+
+    if (setsockopt (listenfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
+        return -1;
+    }
 
     //アドレス生成
     servaddr.sin_family = AF_INET;

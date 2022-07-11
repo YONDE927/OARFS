@@ -1,4 +1,5 @@
 Remotefs/mirrors/*
+Remotefs/config/*
 *server
 *RemoteFS
 *test

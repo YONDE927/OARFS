@@ -1,29 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "record.h"
+#include "config.h"
 
 RecordConfig* loadrecordconfig(){
-    char ch;
-    char port[6];
+    char* dbname;
     FILE* file;
     int count = 0;
 
-    file = fopen("config/db.config", "r");
-    if(file == NULL)
-    {
+    file = fopen("./config/config.txt", "r");
+    if(file == NULL){
         return NULL;
     }
 
     RecordConfig* config = malloc(sizeof(RecordConfig));
-    ch = getc(file);
-    while((ch != EOF) && (ch != '\n'))
-    {
-        config->dbname[count] = ch;    
-        ch = getc(file);
-        count ++;
-    }
-    config->dbname[count] = '\0';
+    dbname = searchOptionKey(file, "DBNAME");
+    strncpy(config->dbname, dbname, strlen(dbname) + 1);
     return config;
 }
 

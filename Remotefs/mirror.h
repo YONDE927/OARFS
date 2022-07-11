@@ -1,33 +1,36 @@
 #pragma once
 
-#include "list.h"
-#include "map.h"
-#include "conn.h"
-#include "attr.h"
-
-#include <string.h>
 #include <pthread.h>
-#include <time.h>
 #include <sys/types.h>
 #include <postgresql/libpq-fe.h>
 
+#include "list.h"
+#include "conn.h"
+
 #define BLOCK_SIZE 4048 //4KB
 
-typedef struct Mirror {
+typedef struct {
+    char path[IP_LEN];
+    char dbname[PATH_LEN];
+    char mirrorroot[PATH_LEN];
+    ConnectConfig* connectconfig;
+} MirrorConfig;
+
+typedef struct {
     pthread_rwlock_t* task_rwlock;
     pthread_mutex_t* list_lock;
     pthread_cond_t* list_cond;
     int killswitch;
+    Connector* connector;
     PGconn* dbsession;
-    char dbname[256];
-    char root[256];
+    MirrorConfig* config;
     List* tasklist; //List of MirrorTask
     pthread_t taskthread;
 } Mirror;
 
 typedef struct MirrorFile {
     char path[256];
-    int fd;
+    FILE* fp;
     int size;
     int mtime;
     int atime;
@@ -43,20 +46,17 @@ typedef struct MirrorTask {
     struct stat st;
 } MirrorTask;
 
+MirrorConfig* loadMirrorConfig(char* path);
+void freeMirrorConfig(MirrorConfig* config);
 
-MirrorTask* createTask(const char* path);
-
-void freeMirrorTask(void* task);
-
-Mirror* constructMirror(char* root, char* config);
-
+Mirror* constructMirror(MirrorConfig* config);
 void freeMirror(Mirror* mirror);
 
+MirrorTask* createTask(Mirror* mirror, const char* path);
+void freeMirrorTask(void* task);
+
 void showMirrorFile(MirrorFile* file);
-
 void freeMirrorFile(MirrorFile* file);
-
-Connector* getMirrorConnector(char* configpath);
 
 void resetMirrorDB(Mirror* mirror);
 
@@ -64,21 +64,16 @@ void resetMirrorDB(Mirror* mirror);
 int startMirroring(Mirror* mirror);
 
 void request_mirror(Mirror* mirror, const char* path);
-
 MirrorFile* search_mirror(Mirror* mirror, const char* path);
-
 void check_mirror(Mirror* mirror, const char* path);
-
 /*MirrorFileをオープンし、ファイルディスクリプタを返す*/
-int openMirrorFile(MirrorFile* file);
-
+int openMirrorFile(Mirror* mirror, MirrorFile* file);
 /*MirrorFileのファイルディスクリプタに対してreadを発行する*/
-int readMirrorFile(MirrorFile* file, off_t offset, size_t size, char* buf);
+int readMirrorFile(Mirror* mirror, MirrorFile* file, off_t offset, size_t size, char* buf);
 /*MirrorFileのファイルディスクリプタに対してwriteを発行する*/
-int writeMirrorFile(MirrorFile* file, off_t offset, size_t size, const char* buf);
-
+int writeMirrorFile(Mirror* mirror, MirrorFile* file, off_t offset, size_t size, const char* buf);
 /*MirrorFileをクローズする*/
-int closeMirrorFile(MirrorFile* file);
+int closeMirrorFile(Mirror* mirror, MirrorFile* file);
 
 void* mirrorProcess();
 
