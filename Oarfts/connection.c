@@ -22,23 +22,6 @@ int getServerSock(short port){
         return -1;
     }
 
-    //ソケット設定
-    struct timeval timeout;
-    timeout.tv_sec = 5;
-    timeout.tv_usec = 0;
-
-    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes)) < 0){
-        return -1;
-    }
-
-    if(setsockopt (listenfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
-        return -1;
-    }
-
-    if (setsockopt (listenfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
-        return -1;
-    }
-
     //アドレス生成
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -70,7 +53,26 @@ int acceptSock(int listenfd){
         printf("accept fail\n");
         return -1;
     }
+
+    //ソケット設定
+    int yes;
+    struct timeval timeout;
+    timeout.tv_sec = 5;
+    timeout.tv_usec = 0;
+
+    if(setsockopt(clientfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes)) < 0){
+        return -1;
+    }
+
+    if(setsockopt (clientfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
+        return -1;
+    }
+
+    if (setsockopt (clientfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
+        return -1;
+    }
     printf("accept ip %d\naccept port %d\n", cliaddr.sin_addr.s_addr, cliaddr.sin_port);
+
     return clientfd;
 }
 

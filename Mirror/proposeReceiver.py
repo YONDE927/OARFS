@@ -10,7 +10,7 @@ proposeReceiver = FastAPI()
 @proposeReceiver.post("/propose/")
 async def propose(files : fileObject.PathList):
     #calculate something return mirroring file list.
-    fd = open("mirror.req", "a")
+    fd = open("./mirror.req", "a")
     fcntl.flock(fd, fcntl.LOCK_EX)
     for path in files.path:
         print("received propose: ", path)

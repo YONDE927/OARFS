@@ -33,6 +33,7 @@ typedef struct FsData{
 FsData fsdata = {0, NULL, NULL, NULL, NULL, NULL};
 
 FsConfig* loadFsConfig(char* path);
+
 int initFsData(char* configpath);
 int fuseGetattr(const char* path, struct stat* stbuf, struct fuse_file_info* fi);
 int fuseOpen(const char* path, struct fuse_file_info* fi);

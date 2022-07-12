@@ -1,7 +1,7 @@
 CC = gcc
 CFLAG = -ggdb
 
-all: attr list map
+all: attr list map config
 	ar rcs $(OBJD)libutil.a $(OBJD)list.o $(OBJD)map.o $(OBJD)config.o
 	ar rcs $(OBJD)libattr.a $(OBJD)attr.o 
 	rm $(OBJD)*.o

@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #include "conn.h"
 #include "attr.h"
@@ -24,7 +25,7 @@ int getMirrorUsedStorage(Mirror* mirror);
 
 //ConfigはMirrorが後で参照する可能性があるので、解放しない。
 MirrorConfig* loadMirrorConfig(char* path){
-    char* host, *port, *dbname, *root, *mirrorroot;
+    char* host, *port, *dbname, *root, *mirrorroot, *mirrorreq;
     FILE* file;
     MirrorConfig* config;
     int count = 0;
@@ -64,6 +65,15 @@ MirrorConfig* loadMirrorConfig(char* path){
         return NULL;
     }
 
+    if((mirrorreq = searchOptionKey(file, "MIRRORREQ")) != NULL){
+        strncpy(config->mirrorreq, mirrorreq, strlen(mirrorreq) + 1);
+        free(mirrorreq);
+    }else{
+        fclose(file);
+        free(config);
+        return NULL;
+    }
+
     fclose(file);
     return config;
 }
@@ -75,10 +85,23 @@ void freeMirrorConfig(MirrorConfig* config){
     }
 }
 
+void mirror_signal_handler(int signum){
+    killpg(0, SIGKILL);
+    exit(0);
+}
+
 Mirror* constructMirror(MirrorConfig* config){
     int rc;
     Mirror* mirror;
     Connector* connector;
+
+    //子プロセス終了の予約
+    /* シグナルハンドラの登録 */
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = mirror_signal_handler;
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
 
     if(config == NULL){ return NULL; }
 
@@ -102,6 +125,12 @@ Mirror* constructMirror(MirrorConfig* config){
     connector = getConnector(config->connectconfig);
 
     mirror->killswitch = 0;
+    mirror->taskpid = 0;
+
+    mirror->request = fopen(config->mirrorreq, "r+");
+    if(mirror->request == NULL){
+        return NULL; 
+    }
 
     mirror->task_rwlock = malloc(sizeof(pthread_rwlock_t));
     rc = pthread_rwlock_init(mirror->task_rwlock, NULL);
@@ -673,6 +702,14 @@ int startMirroring(Mirror* mirror){
 /********************************/
 /*インターフェースに関するコード*/
 /********************************/
+void write_mirror_request(Mirror* mirror, const char* path){
+    flock(fileno(mirror->request), LOCK_EX);
+    fwrite("\n", 1, 1, mirror->request);
+    fwrite(path, 1, strlen(path), mirror->request);
+    fwrite("\n", 1, 1, mirror->request);
+    flock(fileno(mirror->request), LOCK_UN);
+}
+
 void request_mirror(Mirror* mirror, const char* path){
     int rc;
 
@@ -809,15 +846,13 @@ void readMirrorRequest(Mirror* mirror, FILE* fi){
 
 //ミラープロセス用関数
 //プロセス内で新しいミラー構造体を生成する。ループで要求を受け付けてタスクに追加
-void* mirrorProcess(){
+void* mirrorProcess(char* configpath){
     int rc;
     MirrorConfig* config;
     Mirror* mirror;
     char mirrorpath[256];
-    char configpath[256];
     FILE* fi;
 
-    realpath("./config/config.txt", configpath);
     config = loadMirrorConfig(configpath);
     if(config == NULL){ return NULL; }
 
@@ -833,7 +868,7 @@ void* mirrorProcess(){
         return NULL;
     }
 
-    fi = fopen("./mirror.req", "w+");
+    fi = fopen(mirror->config->mirrorreq,"r+");
     if(fi == NULL){
         freeMirror(mirror);
     }
@@ -842,8 +877,18 @@ void* mirrorProcess(){
     return NULL;
 }
 
+int mirrorProcessRun(char* configpath){
+    int pid;
 
+    pid = fork();
+    if(pid == -1){
+        puts("fork mirror process fail");
+    }else if(pid == 0){
+        mirrorProcess(configpath);
+    }
 
+    return pid;
+}
 
 
 

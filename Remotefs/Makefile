@@ -5,7 +5,7 @@ LIBD = -L../shared -L../Oarfts
 MACRO = -DRAW
 
 #remotefs
-all: conn mirror record test fts mirrorserver
+all: conn mirror record fts shared
 	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o RemoteFS remotefs.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)record.o -lfuse3 -lpthread -lutil -lfts -lattr -lpq
 	rm $(OBJD)*.o
 
@@ -24,6 +24,9 @@ record:
 #fts
 fts: 
 	make -C ../Oarfts/
+#shared
+shared: 
+	make -C ../shared/
 
 
 #test
