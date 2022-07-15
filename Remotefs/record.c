@@ -5,17 +5,18 @@
 #include "record.h"
 #include "config.h"
 
-RecordConfig* loadrecordconfig(){
+RecordConfig* loadRecordConfig(char* configpath){
     char* dbname;
     FILE* file;
     int count = 0;
 
-    file = fopen("./config/config.txt", "r");
+    file = fopen(configpath, "r");
     if(file == NULL){
         return NULL;
     }
 
     RecordConfig* config = malloc(sizeof(RecordConfig));
+    bzero(config, sizeof(RecordConfig));
     dbname = searchOptionKey(file, "DBNAME");
     strncpy(config->dbname, dbname, strlen(dbname) + 1);
     return config;
@@ -23,31 +24,38 @@ RecordConfig* loadrecordconfig(){
 
 //DB接続初期化
 int initRecordSession(Record* record){
-    const char** dbkey;
-    const char** dbval;
+    //const char** dbkey;
+    //const char** dbval;
+    char config[512] = {0};
 
     if(record == NULL){return -1;}
-    dbkey = malloc(1 * sizeof(char*));
-    dbval = malloc(1 * sizeof(char*));
-    dbkey[0] = "dbname"; dbval[0] = record->config->dbname; 
+    if(record->config == NULL){return -1;}
+    //dbkey = malloc(1 * sizeof(char*));
+    //dbval = malloc(1 * sizeof(char*));
+    //dbkey[0] = "dbname"; dbval[0] = record->config->dbname; 
 
-    record->session = PQconnectdbParams(dbkey, dbval, 1);
+    //record->session = PQconnectdbParams(dbkey, dbval, 1);
+
+    sprintf(config, "dbname=%s", record->config->dbname);
+    record->session = PQconnectdb(config);
     if(record->session == NULL){
         puts("connect db error");
-        exit(0);
+        return -1;
     }
     return 0;
 }
 
-Record* newRecord(){
+Record* newRecord(RecordConfig* config){
     int rc;
     Record* record;
-    RecordConfig* config;
 
-    config = loadrecordconfig();
     if(config == NULL){ return NULL;}
 
     record = malloc(sizeof(Record));
+    if(record == NULL){
+        return NULL;
+    }
+
     record->config = config;
     rc = initRecordSession(record);
     if(rc < 0){
@@ -65,6 +73,7 @@ Record* newRecord(){
 void resetRecord(PGconn* session){
     int rc;
 
+    if(session == NULL){ return; }
     //exec sql
     PGresult* res;
     //reset
@@ -81,6 +90,7 @@ void closeRecordSession(Record* record){
 }
 
 void freeRecord(Record* record){
+    if(record == NULL){return;}
     closeRecordSession(record);
     free(record);
 }
@@ -89,6 +99,7 @@ void freeRecord(Record* record){
 int createRecordTable(Record* record){
     PGresult* res;
 
+    if(record == NULL){return -1;}
     if(record->session == NULL){
         printf("createRecordTable failed\n");
         return -1;
@@ -113,25 +124,33 @@ int recordOperation(Record* record, const char* path, op_t op){
     time_t now;
     PGresult* res;
 
+    if(record == NULL){return -1;}
+    if(record->session == NULL){ return -1;}
+
     //time
     now = time(NULL);
 
     //sql text
-    int paramlength[] = {0, 0, sizeof(int)};
-    int paramformat[] = {0, 0, 1};
-    const char* vals[] = {path, opname[op], (char*)&now};
-
-    res = PQexecParams(record->session,
-                       "REPLACE INTO Record VALUES($1,$2,$3);",
-                       3,           /* パラメータは1つ。 */
-                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
-                       vals,
-                       paramlength,        /* テキストのため、パラメータ長は不要。 */
-                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
-                       0);          /* バイナリ結果を要求。 */
-
+//    int paramlength[] = {0, 0, sizeof(int)};
+//    int paramformat[] = {0, 0, 1};
+//    const char* vals[] = {path, opname[op], (char*)&now};
+//
+//    res = PQexecParams(record->session,
+//                       "INSERT INTO Record VALUES($1,$2,$3);",
+//                       3,           /* パラメータは1つ。 */
+//                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
+//                       vals,
+//                       paramlength,        /* テキストのため、パラメータ長は不要。 */
+//                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
+//                       0);          /* バイナリ結果を要求。 */
+//
+    char query[512];
+    sprintf(query, "INSERT INTO Record (path, opcode, time) VALUES('%s','%s',%ld);", path, opname[op], now);
+    res = PQexec(record->session, query);
+    printf("query: %s\n", query);
     if(PQresultStatus(res) != PGRES_COMMAND_OK){
         PQclear(res);
+        puts("insert record error");
         return -1;
     };
     PQclear(res);

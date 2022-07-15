@@ -38,6 +38,7 @@ MirrorConfig* loadMirrorConfig(char* path){
         fclose(file);
         return NULL;
     }
+    bzero(config, sizeof(MirrorConfig));
 
     config->connectconfig = loadConnConfig(path);
     if(config->connectconfig == NULL){ 
@@ -93,7 +94,6 @@ void mirror_signal_handler(int signum){
 Mirror* constructMirror(MirrorConfig* config){
     int rc;
     Mirror* mirror;
-    Connector* connector;
 
     //子プロセス終了の予約
     /* シグナルハンドラの登録 */
@@ -107,30 +107,27 @@ Mirror* constructMirror(MirrorConfig* config){
 
     mirror = malloc(sizeof(Mirror));
     if(mirror == NULL){ return NULL; }
+    bzero(mirror, sizeof(Mirror));
 
     mirror->config = config;
 
     rc = initDbSession(mirror);
     if(rc < 0){
-        free(mirror);
         return NULL; 
     }
 
     rc = createMirrorTable(mirror);
     if(rc < 0){
-        free(mirror);
         return NULL; 
     }
 
-    connector = getConnector(config->connectconfig);
+    mirror->connector = getConnector(config->connectconfig);
+    if(mirror->connector == NULL){
+        return NULL;
+    }
 
     mirror->killswitch = 0;
     mirror->taskpid = 0;
-
-    mirror->request = fopen(config->mirrorreq, "r+");
-    if(mirror->request == NULL){
-        return NULL; 
-    }
 
     mirror->task_rwlock = malloc(sizeof(pthread_rwlock_t));
     rc = pthread_rwlock_init(mirror->task_rwlock, NULL);
@@ -244,15 +241,18 @@ char* getMirrorPath(Mirror* mirror, const char* path){
 /**********************/
 /*DBセッションを開始*/
 int initDbSession(Mirror* mirror){
-    const char** dbkey;
-    const char** dbval;
+    char config[512] = {0};
+    //const char** dbkey;
+    //const char** dbval;
 
-    if(mirror == NULL){return -1;}
-    dbkey = malloc(1 * sizeof(char*));
-    dbval = malloc(1 * sizeof(char*));
-    dbkey[0] = "dbname"; dbval[0] = mirror->config->dbname; 
+    //if(mirror == NULL){return -1;}
+    //dbkey = malloc(1 * sizeof(char*));
+    //dbval = malloc(1 * sizeof(char*));
+    //dbkey[0] = "dbname"; dbval[0] = mirror->config->dbname; 
+    //mirror->dbsession = PQconnectdbParams(dbkey, dbval, 1);
 
-    mirror->dbsession = PQconnectdbParams(dbkey, dbval, 1);
+    sprintf(config, "dbname=%s", mirror->config->dbname);
+    mirror->dbsession = PQconnectdb(config);
     if(mirror->dbsession == NULL){
         puts("connect db error");
         exit(0);
@@ -303,28 +303,36 @@ int insertMirrorFileToDB(Mirror* mirror, MirrorFile* file){
 
     if(mirror == NULL){return -1;}
     //sql text
-    int paramlength[] = {0, sizeof(int), sizeof(int), sizeof(int), sizeof(int)};
-    int paramformat[] = {0, 1, 1, 1, 1};
-    int size, mtime, atime, ref_cnt;
+    //int paramlength[] = {0, sizeof(int), sizeof(int), sizeof(int), sizeof(int)};
+    //int paramformat[] = {0, 1, 1, 1, 1};
+    //int size, mtime, atime, ref_cnt;
 
-    size = htonl(file->size);
-    mtime = htonl(file->mtime);
-    atime = htonl(file->atime);
-    ref_cnt = htonl(file->ref_cnt);
+    //size = htonl(file->size);
+    //mtime = htonl(file->mtime);
+    //atime = htonl(file->atime);
+    //ref_cnt = htonl(file->ref_cnt);
 
-    const char* vals[] = { file->path, (char*)&size, (char*)&mtime, (char*)&atime, (char*)&ref_cnt};
+    //const char* vals[] = { file->path, (char*)&size, (char*)&mtime, (char*)&atime, (char*)&ref_cnt};
 
-    res = PQexecParams(mirror->dbsession,
-                       "REPLACE INTO Mirror VALUES($1,$2,$3,$4,$5);",
-                       5,           /* パラメータは1つ。 */
-                       NULL,        /* バックエンドにパラメータの型を推測させる。 */
-                       vals,
-                       paramlength,        /* テキストのため、パラメータ長は不要。 */
-                       paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
-                       0);          /* バイナリ結果を要求。 */
+    //res = PQexecParams(mirror->dbsession,
+    //                   "REPLACE INTO Mirror VALUES ($1::text, $2::integer, $3::integer, $4::integer, $5::integer);",
+    //                   5,           /* パラメータは1つ。 */
+    //                   NULL,        /* バックエンドにパラメータの型を推測させる。 */
+    //                   vals,
+    //                   paramlength,        /* テキストのため、パラメータ長は不要。 */
+    //                   paramformat,        /* デフォルトで全てのパラメータはテキスト。 */
+    //                   0);          /* バイナリ結果を要求。 */
+
+    char query[512];
+    sprintf(query, "INSERT INTO Mirror VALUES ('%s', %d, %d, %d, %d) ON CONFLICT (path) DO UPDATE SET size = %d, mtime = %d, atime = %d, ref_cnt = %d;",
+            file->path, file->size, file->mtime, file->atime, file->ref_cnt, file->size, file->mtime, file->atime, file->ref_cnt);
+    printf("query: %s\n", query);
+    res = PQexec(mirror->dbsession, query);
 
     if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        printf("%s\n", PQresultErrorMessage(res));
         PQclear(res);
+        puts("insertMirrorFileToDB error");
         return -1;
     };
     PQclear(res);
@@ -356,12 +364,14 @@ MirrorFile* lookupMirrorFileFromDB(Mirror* mirror, const char* path){
 
     if(PQresultStatus(res) != PGRES_TUPLES_OK){
         PQclear(res);
+        puts("lookupMirrorFileFromDB error");
         return NULL;
     }
 
     //問い合わせの取り出し
     if(PQntuples(res) < 1){
         PQclear(res);
+        puts("lookupMirrorFileFromDB file not found");
         return NULL;
     }
     
@@ -476,15 +486,12 @@ void resetMirrorDB(Mirror* mirror){
 MirrorTask* createTask(Mirror* mirror, const char* path){
     MirrorTask* task;
     Attribute* attribute;
-    Connector* connector;
 
     //コネクタの取得
     if(mirror == NULL){ return NULL; }
   
-    connector = mirror->connector;
-
     //Attributeの取得
-    attribute = connStat(connector, path);
+    attribute = connStat(mirror->connector, path);
     if(attribute == NULL){ return NULL; }
 
     //MirrorTaskの作成
@@ -493,6 +500,7 @@ MirrorTask* createTask(Mirror* mirror, const char* path){
         free(attribute);
         return NULL;
     }
+    bzero(task, sizeof(MirrorTask));
     task->file = constructMirrorFile(path, attribute->st);
     task->st = attribute->st;
     strncpy(task->path, path, strlen(path) + 1);
@@ -661,6 +669,7 @@ void* loopTask(void* pmirror){
 
         while(node == NULL){
             if(mirror->killswitch == 1){
+                pthread_mutex_unlock(mirror->list_lock);
                 return NULL;
             }
             pthread_cond_wait(mirror->list_cond, mirror->list_lock);
@@ -703,11 +712,17 @@ int startMirroring(Mirror* mirror){
 /*インターフェースに関するコード*/
 /********************************/
 void write_mirror_request(Mirror* mirror, const char* path){
-    flock(fileno(mirror->request), LOCK_EX);
-    fwrite("\n", 1, 1, mirror->request);
-    fwrite(path, 1, strlen(path), mirror->request);
-    fwrite("\n", 1, 1, mirror->request);
-    flock(fileno(mirror->request), LOCK_UN);
+    FILE* file;
+
+    file = fopen(mirror->config->mirrorreq, "a");
+    if(file == NULL){ return; }
+    flock(fileno(file), LOCK_EX);
+    fwrite("\n", 1, 1, file);
+    fwrite(path, 1, strlen(path), file);
+    fwrite("\n", 1, 1, file);
+    fsync(fileno(file));
+    flock(fileno(file), LOCK_UN);
+    fclose(file);
 }
 
 void request_mirror(Mirror* mirror, const char* path){
@@ -722,10 +737,8 @@ MirrorFile* search_mirror(Mirror* mirror, const char* path){
     return lookupMirrorFileFromDB(mirror, path);
 }
 
-
 void check_mirror(Mirror* mirror, const char* path){
     int rc;
-    
     rc = getMirrorFileNum(mirror);
 }
 
@@ -770,6 +783,7 @@ int readMirrorFile(Mirror* mirror, MirrorFile* file, off_t offset, size_t size, 
 
     return rc;
 }
+
 /*MirrorFileのファイルディスクリプタに対してwriteを発行する*/
 int writeMirrorFile(Mirror* mirror, MirrorFile* file, off_t offset, size_t size, const char* buf){
     int rc;
@@ -821,25 +835,34 @@ int closeMirrorFile(Mirror* mirror, MirrorFile* file){
 /**********************************************/
 
 //ミラー要求ファイル監視関数
-void readMirrorRequest(Mirror* mirror, FILE* fi){
+void readMirrorRequest(Mirror* mirror){
     int nread;
     size_t len;
-    char* line;
+    char* line = NULL;
+    char* linebuf = NULL;
+    FILE* fi;
+
     if(mirror == NULL){return;}
-    if(fi == NULL){return;}
 
     while(mirror->killswitch == 0){
+        line = NULL;
+        fi = fopen(mirror->config->mirrorreq, "r+");
+        if(fi == NULL){ return; }
+
         flock(fileno(fi), LOCK_EX);
         fseek(fi, SEEK_SET, 0);
         while((nread = getline(&line, &len, fi)) != -1){
             if(nread > 0){
-                line[nread - 1] = '\0';
-                request_mirror(mirror, line);
-                free(line);
+                linebuf = strdup(line);
+                linebuf[nread - 1] = '\0';
+                request_mirror(mirror, linebuf);
+                free(linebuf);
             }
         }
+        if(line != NULL){ free(line); }
         ftruncate(fileno(fi), 0);
         flock(fileno(fi), LOCK_UN);
+        fclose(fi);
         sleep(5);
     }
 }
@@ -872,7 +895,8 @@ void* mirrorProcess(char* configpath){
     if(fi == NULL){
         freeMirror(mirror);
     }
-    readMirrorRequest(mirror, fi);
+    printf("open mirror.req in %s\n", mirror->config->mirrorreq);
+    readMirrorRequest(mirror);
 
     return NULL;
 }

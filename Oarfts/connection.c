@@ -64,13 +64,13 @@ int acceptSock(int listenfd){
         return -1;
     }
 
-    if(setsockopt (clientfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
-        return -1;
-    }
+    //if(setsockopt (clientfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
+        //return -1;
+    //}
 
-    if (setsockopt (clientfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
-        return -1;
-    }
+    //if(setsockopt (clientfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
+        //return -1;
+    //}
     printf("accept ip %d\naccept port %d\n", cliaddr.sin_addr.s_addr, cliaddr.sin_port);
 
     return clientfd;

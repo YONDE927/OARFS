@@ -1,5 +1,5 @@
 #include "mirror.h"
 
 int main(){
-    mirrorProcess();
+    mirrorProcess("./config/config.txt");
 }

@@ -11,7 +11,8 @@ typedef struct{
     RecordConfig* config;
 } Record;
 
-Record* newRecord();
+RecordConfig* loadRecordConfig(char* configpath);
+Record* newRecord(RecordConfig* config);
 void freeRecord(Record* record);
 void resetRecord(PGconn* session);
 

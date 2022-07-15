@@ -22,7 +22,6 @@ typedef struct {
     pthread_mutex_t* list_lock;
     pthread_cond_t* list_cond;
     int killswitch;
-    FILE* request;
     Connector* connector;
     PGconn* dbsession;
     MirrorConfig* config;
@@ -81,6 +80,7 @@ int writeMirrorFile(Mirror* mirror, MirrorFile* file, off_t offset, size_t size,
 /*MirrorFileをクローズする*/
 int closeMirrorFile(Mirror* mirror, MirrorFile* file);
 
-void* mirrorProcess();
+void* mirrorProcess(char* configpath);
 int mirrorProcessRun(char* configpath);
 
+int insertMirrorFileToDB(Mirror* mirror, MirrorFile* file);

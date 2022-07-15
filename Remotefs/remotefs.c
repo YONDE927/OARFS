@@ -1,56 +1,7 @@
-#define FUSE_USE_VERSION 31
-#include <fuse3/fuse.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "config.h"
-#include "list.h"
-#include "map.h"
-#include "attr.h"
-#include "conn.h"
-#include "mirror.h"
-#include "record.h"
-
-typedef struct FileHandler {
-    off_t offset;
-    FileSession* session;
-    MirrorFile* mfile;
-} FileHandler;
-
-typedef struct FsConfig{
-    char path[256];
-    char RemoteRoot[256];
-    char MountPoint[256];
-} FsConfig;
-
-typedef struct FsData{
-    int initiated;
-    IntMap* FhMap;
-    Mirror* mirror;
-    Record* record;
-    Connector* connector;
-    FsConfig* config;
-} FsData;
+#include "remotefs.h"
 
 FsData fsdata = {0, NULL, NULL, NULL, NULL, NULL};
-
-FsConfig* loadFsConfig(char* path);
-
-int initFsData(char* configpath);
-int fuseGetattr(const char* path, struct stat* stbuf, struct fuse_file_info* fi);
-int fuseOpen(const char* path, struct fuse_file_info* fi);
-int fuseRead(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
-int fuseWrite(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
-int fuseStatfs(const char* fs, struct statvfs* stbuf);
-int fuseRelease(const char* path, struct fuse_file_info* fi);
-int fuseReaddir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offset,struct fuse_file_info* fi, enum fuse_readdir_flags flags);
-void* fuseInit(struct fuse_conn_info* conn, struct fuse_config* cfg);
-void fuseDestory(void* private_data);
-off_t fuseLseek(const char* path, off_t offset, int whence, struct fuse_file_info* fi);
-
+char configrealpath[256];
 
 FsConfig* loadFsConfig(char* path){
     char* remoteroot;
@@ -68,6 +19,7 @@ FsConfig* loadFsConfig(char* path){
         fclose(file);
         return NULL;
     }
+    bzero(config, sizeof(FsConfig));
 
     strncpy(config->path, path, strlen(path) + 1);
 
@@ -89,6 +41,8 @@ FsConfig* loadFsConfig(char* path){
         return NULL;
     }
 
+    mountpoint = searchOptionKey(file, "DBNAME");
+
     fclose(file);
     
     return config;
@@ -98,8 +52,21 @@ int initFsData(char* configpath){
     int rc, len;
     ConnectConfig* connectconfig;
     MirrorConfig* mirrorconfig;
+    RecordConfig* recordconfig;
 
     if(fsdata.initiated == 0){
+        //Recordの設定
+        recordconfig = loadRecordConfig(configpath);
+        if(recordconfig == NULL){
+            puts("record config error");
+            exit(EXIT_FAILURE);
+        }
+
+        fsdata.record = newRecord(recordconfig); 
+        if(fsdata.record == NULL){
+            puts("fsdata.record error");
+            exit(EXIT_FAILURE);
+        }
 
         fsdata.config = loadFsConfig(configpath);
         if(fsdata.config == NULL){
@@ -107,7 +74,7 @@ int initFsData(char* configpath){
             exit(EXIT_FAILURE);
         }
 
-        connectconfig = loadConnConfig(fsdata.config->path);
+        connectconfig = loadConnConfig(configpath);
         if(connectconfig == NULL){
             puts("connect config error");
             exit(EXIT_FAILURE);
@@ -122,7 +89,7 @@ int initFsData(char* configpath){
         fsdata.FhMap = newIntMap();
 
         //FsDataにMirrorを設定
-        mirrorconfig = loadMirrorConfig(fsdata.config->path);
+        mirrorconfig = loadMirrorConfig(configpath);
         if(mirrorconfig == NULL){
             puts("mirror config error");
             exit(EXIT_FAILURE);
@@ -139,14 +106,9 @@ int initFsData(char* configpath){
 
         //mirrorringのプロセスを開始する。
         //子プロセスの生成と終了条件について今後整理したい。
-        mirrorProcessRun(fsdata.config->path);
+        //mirrorProcessRun(configpath);
 
-        //Recordの設定
-        fsdata.record = newRecord(); 
-        if(fsdata.record == NULL){
-            puts("fsdata.record error");
-            exit(EXIT_FAILURE);
-        }
+        fsdata.initiated = 1;
         
         printf("Init %s\n", fsdata.config->RemoteRoot);
     }
@@ -233,7 +195,7 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
     int rc, ind, fh;
     char* RemotePath;
     FileHandler file = {0};
-    FileSession* session;
+    FileSession* session = NULL;
 
     //ファイルハンドラマップを取得
     fh = newhandler(fsdata.FhMap);
@@ -251,6 +213,8 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
         /* ファイルハンドラの管理用マップ構造体へ登録 */
         insIntMap(fsdata.FhMap, fh, &file, sizeof(FileHandler)); 
         fi->fh = fh;
+        //レコード
+        recordOperation(fsdata.record, RemotePath, oOPEN);
         free(RemotePath);
         return 0;
     }
@@ -267,14 +231,12 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
 
     //ミラーファイルをオーダーする
     write_mirror_request(fsdata.mirror, RemotePath);
-    free(RemotePath);
 
     /* ファイルハンドラの管理用マップ構造体へ登録 */
     insIntMap(fsdata.FhMap, fh, &file, sizeof(FileHandler)); 
     fi->fh = fh;
 
     //レコード
-    RemotePath = patheditor(path);
     recordOperation(fsdata.record, RemotePath, oOPEN);
     free(RemotePath);
 
@@ -336,7 +298,7 @@ int fuseWrite(const char *path, const char *buffer, size_t size, off_t offset, s
         if(rc < 0){
             return -EBADFD;
         }
-        return rc;
+        //通信ができる場合はリモートにも送りたいので、終了しない。
     }
 
     /* キャッシュ・ローカルには見つからなくてリモートを参照するセクション*/
@@ -423,19 +385,13 @@ int fuseReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 }
 
 void* fuseInit(struct fuse_conn_info *conn, struct fuse_config *cfg){
-    char* configpath;
-
-    configpath = fuse_get_context()->private_data;
-    initFsData(configpath);
+    printf("configpath: %s\n", configrealpath);
+    initFsData(configrealpath);
     return NULL;
 }
 
 void fuseDestory(void *private_data){
-    FsData* fs;
-
-    fs = private_data;
-    freeIntMap(fs->FhMap);
-    free(fs);
+    freeIntMap(fsdata.FhMap);
 }
 
 off_t fuseLseek(const char *path, off_t offset, int whence, struct fuse_file_info *fi){
@@ -447,8 +403,6 @@ off_t fuseLseek(const char *path, off_t offset, int whence, struct fuse_file_inf
         return -EBADFD;
     }
 
-    /* キャッシュ・ローカルには見つからなくてリモートを参照するセクション*/
-   
     fh->offset = offset;
     return fh->offset;
 }
@@ -467,9 +421,9 @@ struct fuse_operations fuseOper = {
 };
 
 int main(int argc, char* argv[]){
+    char* configpath = "./config/config.txt";
 
-    if(argc < 2){
-        puts("need config path");
-    }
-    return fuse_main(argc, argv, &fuseOper, argv[1]);
+    realpath(configpath, configrealpath);
+    printf("%s\n", configrealpath);
+    return fuse_main(argc, argv, &fuseOper, NULL);
 }

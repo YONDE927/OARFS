@@ -1,5 +1,6 @@
 CC = gcc
 CFLAG = -ggdb
+INC = -I.
 
 all: attr list map config
 	ar rcs $(OBJD)libutil.a $(OBJD)list.o $(OBJD)map.o $(OBJD)config.o
@@ -14,3 +15,5 @@ map:
 	$(CC) $(CFLAG) $(INC) -o $(OBJD)map.o -c $(SRCD)map.c
 config: 
 	$(CC) $(CFLAG) $(INC) -o $(OBJD)config.o -c $(SRCD)config.c
+test-config: 
+	$(CC) $(CFLAG) $(INC) -o test/test-config test/test-config.c $(SRCD)config.c

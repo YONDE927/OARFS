@@ -1,7 +1,14 @@
 #pragma once
+
 #define FUSE_USE_VERSION 31
 #include <fuse3/fuse.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
+#include "config.h"
 #include "list.h"
 #include "map.h"
 #include "attr.h"
@@ -30,8 +37,6 @@ typedef struct FsData{
     FsConfig* config;
 } FsData;
 
-FsData fsdata = {0, NULL, NULL, NULL, NULL, NULL};
-
 FsConfig* loadFsConfig(char* path);
 
 int initFsData(char* configpath);
@@ -45,5 +50,4 @@ int fuseReaddir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 void* fuseInit(struct fuse_conn_info* conn, struct fuse_config* cfg);
 void fuseDestory(void* private_data);
 off_t fuseLseek(const char* path, off_t offset, int whence, struct fuse_file_info* fi);
-
 

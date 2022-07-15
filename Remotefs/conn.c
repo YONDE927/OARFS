@@ -33,6 +33,7 @@ ConnectConfig* loadConnConfig(char* path){
         fclose(file);
         return NULL;
     }
+    bzero(config, sizeof(ConnectConfig));
 
     strncpy(config->path, path, strlen(path) + 1);
 
@@ -74,7 +75,10 @@ Connector* getConnector(ConnectConfig* config){
 
     //init mutex
     connector->mutex = malloc(sizeof(pthread_mutex_t));
-    if(connector->mutex == NULL){ return NULL; }
+    if(connector->mutex == NULL){
+        puts("connector mutex is not allocated");
+        return NULL;
+    }
     pthread_mutex_init(connector->mutex, NULL);
 
     connector->sockfd = getClientSock(config->host, config->port);
@@ -164,6 +168,7 @@ Attribute* connStat(Connector* connector, const char* path){
     struct stat stbuf;
 
     if(connector == NULL){ return NULL;}
+    if(connector->mutex == NULL){ return NULL;}
 
     pthread_mutex_lock(connector->mutex);
     rc = requestStat(connector->sockfd, path, &stbuf);
