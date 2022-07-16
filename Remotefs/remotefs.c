@@ -1,4 +1,6 @@
+#include <signal.h>
 #include "remotefs.h"
+#include "connection.h"
 
 FsData fsdata = {0, NULL, NULL, NULL, NULL, NULL};
 char configrealpath[256];
@@ -53,6 +55,7 @@ int initFsData(char* configpath){
     ConnectConfig* connectconfig;
     MirrorConfig* mirrorconfig;
     RecordConfig* recordconfig;
+    CacheConfig* cacheconfig;
 
     if(fsdata.initiated == 0){
         //Recordの設定
@@ -65,6 +68,19 @@ int initFsData(char* configpath){
         fsdata.record = newRecord(recordconfig); 
         if(fsdata.record == NULL){
             puts("fsdata.record error");
+            exit(EXIT_FAILURE);
+        }
+
+        //Cacheの設定
+        cacheconfig = loadCacheConfig(configpath);
+        if(cacheconfig == NULL){
+            puts("cache config error");
+            exit(EXIT_FAILURE);
+        }
+
+        fsdata.cache = newCache(cacheconfig);
+        if(fsdata.cache == NULL){
+            puts("fsdata.cache error");
             exit(EXIT_FAILURE);
         }
 
@@ -133,17 +149,46 @@ char* patheditor(const char* path){
 
 int fuseGetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi){
     //printf("getattr %s\n",path);
+    int rc = 0;
+    int online = 0;
     Attribute* attr;
     char* RemotePath;
 
     RemotePath = patheditor(path);
-    attr = connStat(fsdata.connector, RemotePath);
-    if(attr == NULL){
-        printf("connStat error\n");
-        free(RemotePath);
-        return -ECANCELED;
+    if(RemotePath == NULL){ return -ECANCELED; }
+
+    //オンラインチェック
+    online = connStatus(fsdata.connector);
+    if(online < 0){
+        attr = lookupCache(fsdata.cache, RemotePath);
+        if(attr == NULL){
+            free(RemotePath);
+            return -ENOENT;
+        }
+    }else{
+        attr = connStat(fsdata.connector, RemotePath);
+        if(attr == NULL){
+            printf("connStat error\n");
+            //connStat中のオフライン
+            attr = lookupCache(fsdata.cache, RemotePath);
+            if(attr == NULL){
+                free(RemotePath);
+                return -ENOENT;
+            }
+            free(RemotePath);
+            return 0;
+        }
+
+        rc = registerCache(fsdata.cache, attr);
+        if(rc < 0){
+            printf("registerCache error\n");
+            free(RemotePath);
+            return -ENOENT;
+        }
     }
+
     *stbuf = attr->st;
+
     free(attr);
     free(RemotePath);
     return 0;
@@ -193,7 +238,7 @@ int newhandler(IntMap* map){
 int fuseOpen(const char *path, struct fuse_file_info *fi){
     int map_size;
     int rc, ind, fh;
-    char* RemotePath;
+    char* RemotePath = NULL;
     FileHandler file = {0};
     FileSession* session = NULL;
 
@@ -205,6 +250,7 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
     //ミラーファイルを参照
     file.mfile = search_mirror(fsdata.mirror, RemotePath);
     if(file.mfile != NULL){
+        puts("open MirrorFile");
         rc = openMirrorFile(fsdata.mirror, file.mfile); 
         if(rc < 0){
             free(RemotePath);
@@ -224,7 +270,7 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
     session = connOpen(fsdata.connector, RemotePath, fi->flags);
     if(session == NULL){
         free(RemotePath);
-        return -ECANCELED;
+        return -ENETDOWN;
     }
     file.session = session;
     /* リモートを参照ここまで*/
@@ -244,9 +290,9 @@ int fuseOpen(const char *path, struct fuse_file_info *fi){
 }
 
 int fuseRead(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi){
-    FileHandler* fh;
-    int rc;
-    char* RemotePath;
+    FileHandler* fh = NULL;
+    int rc = 0;
+    char* RemotePath = NULL;
 
     fh = getIntMap(fsdata.FhMap, fi->fh);
     if(fh == NULL){
@@ -255,6 +301,7 @@ int fuseRead(const char *path, char *buffer, size_t size, off_t offset, struct f
 
     //ミラーファイルが参照できる
     if(fh->mfile != NULL){
+        puts("read MirrorFile");
         rc = readMirrorFile(fsdata.mirror, fh->mfile, offset, size, buffer);
         if(rc < 0){
             printf("readMirrorFile fail\n");
@@ -294,18 +341,24 @@ int fuseWrite(const char *path, const char *buffer, size_t size, off_t offset, s
    
     //ミラーファイルが参照できる
     if(fh->mfile != NULL){
+        puts("write to MirrorFile");
         rc = writeMirrorFile(fsdata.mirror, fh->mfile, offset, size, buffer);
         if(rc < 0){
+            puts("writeMirrorFile error");
             return -EBADFD;
         }
-        //通信ができる場合はリモートにも送りたいので、終了しない。
+        RemotePath = patheditor(path);
+        recordOperation(fsdata.record, RemotePath, oWRITE);
+        free(RemotePath);
+        //通信ができる場合はリモートにも送りたいので、終了しない。けど、ミラーファイルの場合は通信セッションをハンドラが持たないので無理。
+        return rc;
     }
 
     /* キャッシュ・ローカルには見つからなくてリモートを参照するセクション*/
     //通信呼び出し
     rc = connWrite(fsdata.connector, fh->session, offset, (void*)buffer, size);
     if(rc < 0){
-        return -ECANCELED;
+        return -ENETDOWN;
     }
     /* リモートを参照ここまで*/
 
@@ -332,6 +385,7 @@ int fuseRelease(const char *path, struct fuse_file_info *fi){
    
     //ミラーファイルが参照できる
     if(fh->mfile != NULL){
+        puts("close MirrorFile");
         rc = closeMirrorFile(fsdata.mirror, fh->mfile);
         if(rc < 0){
             return -EBADFD;
@@ -345,7 +399,7 @@ int fuseRelease(const char *path, struct fuse_file_info *fi){
     //通信呼び出し
     rc = connClose(fsdata.connector, fh->session);
     if(rc < 0){
-        return -ECANCELED;
+        return -ENETDOWN;
     }
     /* リモートを参照ここまで*/
 
@@ -361,25 +415,47 @@ int fuseRelease(const char *path, struct fuse_file_info *fi){
 }
 
 int fuseReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags){
-    List* attrs;
-    char* RemotePath;
-    Attribute* attr;
+    int rc = 0;
+    int online = 0;
+    List* attrs = NULL;
+    char* RemotePath = NULL;
+    Attribute* attr = NULL;
     
     RemotePath = patheditor(path);
-    attrs = connReaddir(fsdata.connector, RemotePath); 
-    if(attrs == NULL){
-        free(RemotePath);
-        return -ECANCELED;
+    if(RemotePath == NULL){ return -1; }
+
+    online = connStatus(fsdata.connector);
+    if(online < 0){
+        attrs = lookupDirCache(fsdata.cache, RemotePath);
+        if(attrs == NULL){
+            free(RemotePath);
+            return -ENOENT;
+        }
+    }else{
+        attrs = connReaddir(fsdata.connector, RemotePath); 
+        if(attrs == NULL){
+            attrs = lookupDirCache(fsdata.cache, RemotePath);
+            if(attrs == NULL){
+                free(RemotePath);
+                return -ENOENT;
+            }
+        }else{
+            rc = registerDirCache(fsdata.cache, RemotePath, attrs);
+            if(rc < 0){
+                free(RemotePath);
+                freeList(attrs, NULL);
+                return -ENOENT;
+            }
+        }
     }
+
     for(Node* node = attrs->head; node != NULL; node = node->next){
         attr = node->data;
+        //printStat(attr);
         filler(buf, attr->path, &(attr->st), 0, FUSE_FILL_DIR_PLUS);
     }
     freeList(attrs, NULL);
     free(RemotePath);
-
-    //レコード
-    //recordOperation(fs->record, path, OPEN);
 
     return 0;    
 }
@@ -422,6 +498,12 @@ struct fuse_operations fuseOper = {
 
 int main(int argc, char* argv[]){
     char* configpath = "./config/config.txt";
+
+    struct sigaction act, oact;
+    act.sa_handler = SIG_IGN;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGPIPE, &act, &oact);
 
     realpath(configpath, configrealpath);
     printf("%s\n", configrealpath);

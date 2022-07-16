@@ -10,8 +10,8 @@ lib: transfer fileoperation connection byteorder
 	ar rcs -o $(OBJD)libfts.a $(OBJD)fileoperation.o $(OBJD)transfer.o $(OBJD)byteorder.o $(OBJD)connection.o 
 
 transfer: 
-	#$(CC) $(CFLAG) $(INCD) -o $(OBJD)transfer.o -c transfer.c 
-	$(CC) $(CFLAG) $(INCD) -DTRANSFER_DEBUG -o $(OBJD)transfer.o -c transfer.c 
+	$(CC) $(CFLAG) $(INCD) -o $(OBJD)transfer.o -c transfer.c 
+	#$(CC) $(CFLAG) $(INCD) -DTRANSFER_DEBUG -o $(OBJD)transfer.o -c transfer.c 
 fileoperation:
 	$(CC) $(CFLAG) $(INCD) -o $(OBJD)fileoperation.o -c fileoperation.c
 byteorder:

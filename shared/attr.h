@@ -11,3 +11,4 @@ typedef struct Attribute
 
 void printAttr(void* _dstat);
 
+void printStat(Attribute* attr);

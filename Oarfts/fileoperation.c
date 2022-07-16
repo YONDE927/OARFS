@@ -569,8 +569,48 @@ List* requestReaddir(int sockfd, const char* path){
     return stats;
 }
 
+char* pathcata(const char* dirpath, const char* child){
+    int dirlen = 0;
+    int chilen = 0;
+    char* output = NULL;
+    char* buf1 = NULL;
+    char* buf2 = NULL;
+    char* buf3 = NULL;
+
+    if((dirpath == NULL) | (child == NULL)){ return NULL; }
+
+    dirlen = strlen(dirpath);
+    chilen = strlen(child);
+
+    buf1 = strdup(dirpath);
+    if(buf1 == NULL){ return NULL; }
+    buf2 = strdup(child);
+    if(buf2 == NULL){ free(buf1); return NULL; }
+   
+    if(buf1[dirlen - 1] == '/'){ buf1[dirlen - 1] = '\0'; }
+    buf3 = buf2;
+    if(buf3[0] == '/'){ buf3++; }
+
+    output = malloc(dirlen + chilen + 3);
+    if(output == NULL){
+        free(buf1);
+        free(buf2);
+        return NULL;
+    }
+    bzero(output, dirlen + chilen + 3);
+
+    strcpy(output, buf1);
+    strcat(output, "/");
+    strcat(output, buf3); 
+    
+    free(buf1);
+    free(buf2);
+    return output;
+}
+
 int responseReaddir(int sockfd, struct Payload request){
     int rc;
+    char* child;
     DIR* dir;
     struct dirent* entry;
     struct Payload response = {0};
@@ -596,7 +636,12 @@ int responseReaddir(int sockfd, struct Payload request){
 
         bzero(&dstat, sizeof(struct Attribute));
         strcpy(dstat.path, entry->d_name);
-        stat(entry->d_name, &dstat.st);
+
+        child = pathcata(request.data, entry->d_name);
+        printf("stat('%s', &dstat.st)\n", child);
+        stat(child, &dstat.st);
+        free(child);
+
         swapStat(&dstat.st);
 
         response.data = (char*)&dstat;

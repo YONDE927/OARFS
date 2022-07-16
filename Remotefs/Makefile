@@ -5,22 +5,22 @@ LIBD = -L../shared -L../Oarfts
 MACRO = -DRAW
 
 #remotefs
-all: conn mirror record fts shared mirrorserver
-	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o RemoteFS remotefs.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)record.o -lfuse3 -lpthread -lutil -lfts -lattr -lpq
+all: conn mirror record cache fts shared mirrorserver
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o RemoteFS remotefs.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)record.o $(OBJD)cache.o -lfuse3 -lpthread -lutil -lfts -lattr -lpq
 	rm $(OBJD)*.o
 
 #conn
 conn:
 	$(CC) $(CFLAG) $(INC) $(MACRO) -o $(OBJD)conn.o -c conn.c 
-#cache
-cache:
-	$(CC) $(CFLAG) $(INC) -o $(OBJD)cache -c cache.c 
 #mirror
 mirror:
 	$(CC) $(CFLAG) $(INC) $(MACRO) -o $(OBJD)mirror.o -c mirror.c
 #record
 record: 
 	$(CC) $(CFLAG) $(INC) -o $(OBJD)record.o -c record.c
+#cache
+cache: 
+	$(CC) $(CFLAG) $(INC) -o $(OBJD)cache.o -c cache.c
 #fts
 fts: 
 	make -C ../Oarfts/
@@ -44,6 +44,9 @@ test-mirror: mirror fts
 
 test-mirror2: shared fts
 	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-mirror2 test/test-mirror2.c mirror.c conn.c -lpthread -lfts -lutil -lattr -lpq
+
+test-cache: shared
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-cache test/test-cache.c cache.c -lutil -lattr -lpq
 
 #mirrorserver
 mirrorserver: conn fts mirror

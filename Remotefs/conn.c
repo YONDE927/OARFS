@@ -73,6 +73,8 @@ Connector* getConnector(ConnectConfig* config){
     connector = malloc(sizeof(Connector));
     if(connector == NULL){ return NULL; }
 
+    connector->config = config;
+
     //init mutex
     connector->mutex = malloc(sizeof(pthread_mutex_t));
     if(connector->mutex == NULL){
@@ -107,8 +109,8 @@ int checkConnector(Connector* connector){
     return rc;
 }
 
-int reConnector(Connector* connector){
-    int rc;
+int reConnect(Connector* connector){
+    int rc = 0;
 
     if(connector == NULL){
         return -1;
@@ -126,6 +128,7 @@ int reConnector(Connector* connector){
 
     rc = requestHealth(connector->sockfd);
     pthread_mutex_unlock(connector->mutex);
+    return rc;
 }
 
 void freeConnector(Connector* connector){
@@ -148,11 +151,16 @@ void freeConnector(Connector* connector){
 
 /* connReaddirはpathを受け取り、AttributeのList構造体を領域確保ともにポインタを返却*/
 List* connReaddir(Connector* connector, const char* path){
+    int rc = 0;
     List* stats;
     Attribute* attr;
 
     if(connector == NULL){ return NULL;}
 
+    rc = connStatus(connector);
+    if(rc < 0){
+        return NULL;
+    }
     //open direcotry
     pthread_mutex_lock(connector->mutex);
     stats = requestReaddir(connector->sockfd, path); 
@@ -163,12 +171,16 @@ List* connReaddir(Connector* connector, const char* path){
 
 /* connStatはAttributeのポインタを受け取りその領域を予約して取得した属性をコピーする。 */
 Attribute* connStat(Connector* connector, const char* path){
-    int rc;
+    int rc = 0;
     Attribute* attr = NULL;
     struct stat stbuf;
 
     if(connector == NULL){ return NULL;}
-    if(connector->mutex == NULL){ return NULL;}
+
+    rc = connStatus(connector);
+    if(rc < 0){
+        return NULL;
+    }
 
     pthread_mutex_lock(connector->mutex);
     rc = requestStat(connector->sockfd, path, &stbuf);
@@ -183,10 +195,16 @@ Attribute* connStat(Connector* connector, const char* path){
 }
 
 FileSession* connOpen(Connector* connector, const char* path, int flag){
+    int rc = 0;
     int path_size, fd;
     FileSession* file;
 
     if(connector == NULL){ return NULL;}
+
+    rc = connStatus(connector);
+    if(rc < 0){
+        return NULL;
+    }
 
     pthread_mutex_lock(connector->mutex);
     fd = requestOpen(connector->sockfd, path, flag);
@@ -210,6 +228,11 @@ int connRead(Connector* connector, FileSession* file, off_t offset, void* buffer
     int rc;
 
     if(connector == NULL){ return -1;}
+
+    rc = connStatus(connector);
+    if(rc < 0){
+        return -1;
+    }
 
     if(file == NULL){
         printf("Remotefile* file not exist\n");
@@ -246,6 +269,7 @@ int connRead(Connector* connector, FileSession* file, off_t offset, void* buffer
 int connWrite(Connector* connector, FileSession* file, off_t offset, void* buffer, int size)
 {
     /* charを予約して、sftp_writeしてコピーする。 */
+    int rc = 0;
     int write_sum = 0;
     int write_size = 0;
     int nbytes = 1;
@@ -254,6 +278,11 @@ int connWrite(Connector* connector, FileSession* file, off_t offset, void* buffe
 
     if(file == NULL){
         printf("FileSession not exist\n");
+        return -1;
+    }
+
+    rc = connStatus(connector);
+    if(rc < 0){
         return -1;
     }
 
@@ -281,12 +310,17 @@ int connWrite(Connector* connector, FileSession* file, off_t offset, void* buffe
 }
 
 int connClose(Connector* connector, FileSession* file){
-    int rc;
+    int rc = 0;
 
     if(connector == NULL){ return -1;}
 
     if(file == NULL){
         printf("FileSession not exist\n");
+        return -1;
+    }
+
+    rc = connStatus(connector);
+    if(rc < 0){
         return -1;
     }
 
@@ -299,3 +333,16 @@ int connClose(Connector* connector, FileSession* file){
     return 0;
 }
 
+int connStatus(Connector* connector){
+    int rc = 0;
+
+    if(connector == NULL){ 
+        puts("Connector no exist");
+        return -1;
+    }
+    rc = checkConnector(connector);
+    if(rc < 0){
+        rc = reConnect(connector);
+    }
+    return rc;
+}

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 struct Header swapHeader(struct Header header){
     header.size = ntohl(header.size);
@@ -18,17 +19,23 @@ int sendData(int fd, void* buf, int size){
     int errno;
     struct Header header = {0};
 
+    struct sigaction act, oact;
+    act.sa_handler = SIG_IGN;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGPIPE, &act, &oact);
+
     header.size = size;
 
     //send header
     header = swapHeader(header);
-    if((rc = send(fd, &header, sizeof(struct Header), 0)) < 0){
+    if((rc = send(fd, &header, sizeof(struct Header), MSG_NOSIGNAL)) < 0){
         printf("sendData header error: %s\n", strerror(errno));
         return -1;
     }
 
     //send data
-    if((rc = send(fd, buf, size, 0)) < 0){
+    if((rc = send(fd, buf, size, MSG_NOSIGNAL)) < 0){
         printf("sendData data error: %s\n", strerror(errno));
         return -1;
     };
@@ -41,6 +48,12 @@ void* recvData(int fd){
     int errno;
     struct Header header = {0};
     void* buf;
+
+    struct sigaction act, oact;
+    act.sa_handler = SIG_IGN;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGPIPE, &act, &oact);
 
     //recv header
     if((rc = recv(fd, &header, sizeof(struct Header), 0)) < 0){

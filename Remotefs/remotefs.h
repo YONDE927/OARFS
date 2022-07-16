@@ -15,6 +15,7 @@
 #include "conn.h"
 #include "mirror.h"
 #include "record.h"
+#include "cache.h"
 
 typedef struct FileHandler {
     off_t offset;
@@ -33,6 +34,7 @@ typedef struct FsData{
     IntMap* FhMap;
     Mirror* mirror;
     Record* record;
+    Cache* cache;
     Connector* connector;
     FsConfig* config;
 } FsData;

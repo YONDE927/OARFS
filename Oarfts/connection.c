@@ -6,6 +6,8 @@
 #include <string.h>
 #include <netdb.h>
 #include <sys/types.h>
+#include <signal.h>
+#include <errno.h>
 #include "connection.h"
 
 /*Server*/
@@ -19,6 +21,10 @@ int getServerSock(short port){
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
     if(listenfd < 0){
         printf("create sock fail\n");
+        return -1;
+    }
+
+    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes)) < 0){
         return -1;
     }
 
@@ -64,14 +70,9 @@ int acceptSock(int listenfd){
         return -1;
     }
 
-    //if(setsockopt (clientfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0){
-        //return -1;
-    //}
-
-    //if(setsockopt (clientfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0){
-        //return -1;
-    //}
-    printf("accept ip %d\naccept port %d\n", cliaddr.sin_addr.s_addr, cliaddr.sin_port);
+    char str[INET_ADDRSTRLEN] = {0};
+    inet_ntop(AF_INET, &cliaddr.sin_addr, str, INET_ADDRSTRLEN);
+    printf("accept ip %s\naccept port %d\n", str, cliaddr.sin_port);
 
     return clientfd;
 }
@@ -79,6 +80,7 @@ int acceptSock(int listenfd){
 /*client*/
 int getClientSock(char* ip, short port){
     int rc;
+    int yes;
     int sockfd;
     struct sockaddr_in servaddr;
     struct sockaddr_in cliaddr;
@@ -87,6 +89,11 @@ int getClientSock(char* ip, short port){
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockfd < 0){
         printf("create sock fail\n");
+        printf("%s\n", strerror(errno));
+        return -1;
+    }
+
+    if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes)) < 0){
         return -1;
     }
 
@@ -103,7 +110,6 @@ int getClientSock(char* ip, short port){
     }
 
     return sockfd;
-
 }
 
 void sigpipeHandler(int sig){

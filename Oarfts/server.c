@@ -64,9 +64,11 @@ void serverwork(int client){
 void startServer(){ 
     int rc, client, server;
 
-    struct sigaction act = {0};
-    act.sa_handler = sigpipeHandler;
-    sigaction(SIGPIPE, &act,NULL);   
+    struct sigaction act, oact;
+    act.sa_handler = SIG_IGN;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGPIPE, &act, &oact);
 
     server = getServerSock(8080);
     if(server < 0){ return ;}

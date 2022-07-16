@@ -677,6 +677,10 @@ void* loopTask(void* pmirror){
         }
         task = node->data;
         rc = execTask(mirror, task);
+        if(rc < 0){
+            pthread_mutex_unlock(mirror->list_lock);
+            continue;
+        }
         pop_front(mirror->tasklist, freeMirrorTask);
 
         pthread_mutex_unlock(mirror->list_lock);
@@ -726,10 +730,8 @@ void write_mirror_request(Mirror* mirror, const char* path){
 }
 
 void request_mirror(Mirror* mirror, const char* path){
-    int rc;
-
     printf("request_mirror %s\n", path);
-    rc = appendTask(mirror, path);
+    appendTask(mirror, path);
     pthread_cond_signal(mirror->list_cond);
 }
 
