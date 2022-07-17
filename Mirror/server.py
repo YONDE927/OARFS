@@ -5,7 +5,7 @@ import recordReceiver
 import proposeSender
 
 def main():
-    sender = proposeSender.ProposeSender("http://127.0.0.1:50081/propose/", "records.req")
+    sender = proposeSender.ProposeSender("http://127.0.0.1:50081/propose/", "record.req")
     sender.run()
     rRthread = recordReceiver.recordRecMain()
 

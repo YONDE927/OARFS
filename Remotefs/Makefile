@@ -49,6 +49,6 @@ test-cache: shared
 	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o test/test-cache test/test-cache.c cache.c -lutil -lattr -lpq
 
 #mirrorserver
-mirrorserver: conn fts mirror
-	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o mirrorserver mirrorserver.c $(OBJD)conn.o $(OBJD)mirror.o -lpthread -lpq -lutil -lfts -lattr
+mirrorserver: conn fts mirror cache
+	$(CC) $(CFLAG) $(INC) $(LIBD) $(MACRO) -o mirrorserver mirrorserver.c $(OBJD)conn.o $(OBJD)mirror.o $(OBJD)cache.o -lpthread -lpq -lutil -lfts -lattr
 

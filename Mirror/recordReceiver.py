@@ -2,6 +2,7 @@ import uvicorn
 from fastapi import FastAPI
 import fcntl
 import threading
+import json
 
 import fileObject
 
@@ -10,7 +11,8 @@ recordReceiver = FastAPI()
 @recordReceiver.post("/record/")
 async def report(files: fileObject.PathList):
     #calculate something return mirroring file list.
-    fd = open("records.req", "a")
+    print("received record: ", files.path)
+    fd = open("record.req", "a")
     fcntl.flock(fd, fcntl.LOCK_EX)
     for path in files.path:
         fd.write(path)

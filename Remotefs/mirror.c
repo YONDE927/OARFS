@@ -12,6 +12,7 @@
 
 #include "conn.h"
 #include "attr.h"
+#include "cache.h"
 #include "config.h"
 #include "fileoperation.h"
 #include "mirror.h"
@@ -533,11 +534,11 @@ int execTask(Mirror* mirror, MirrorTask* task){
     int rc, block_num, offset, size, errno;
     FILE* fp; 
     const char* path;
-    char* mirrorpath;
+    char* mirrorpath = NULL;
     char buffer[4048];
-    Connector* connector; 
-    FileSession* filesession;
-    Attribute* attribute;
+    Connector* connector = NULL; 
+    FileSession* filesession = NULL;
+    Attribute* attr = NULL;
     MirrorFile* file, *tmp;
 
     path = task->path;
@@ -550,14 +551,16 @@ int execTask(Mirror* mirror, MirrorTask* task){
     if(tmp != NULL){
         //持っている
         printf("execTask have %s\n", path);
-        return -1;
+        freeMirrorFile(tmp);
+        tmp = NULL;
+        return 0;
     }
 
     connector = mirror->connector;
     if(connector == NULL){
         return -1;
     }
-   
+
     filesession = connOpen(connector, path, 0);
     if(filesession == NULL){
         printf("execTask connOpen %s fail\n", path);
@@ -572,6 +575,8 @@ int execTask(Mirror* mirror, MirrorTask* task){
         printf("execTask fopen %s error %d fail\n", mirrorpath, errno);
         free(mirrorpath);
         free(filesession);
+        mirrorpath = NULL;
+        filesession = NULL;
         return -1;
     }
 
@@ -595,6 +600,9 @@ int execTask(Mirror* mirror, MirrorTask* task){
     if(rc < 0){
         puts("connClose on execTask fail");
         free(mirrorpath);
+        free(filesession);
+        mirrorpath = NULL;
+        filesession = NULL;
         return -1;
     }
 
@@ -602,11 +610,38 @@ int execTask(Mirror* mirror, MirrorTask* task){
     rc = insertMirrorFileToDB(mirror, file);
     if(rc < 0){
         free(mirrorpath);
+        mirrorpath = NULL;
+        filesession = NULL;
+        return -1;
+    }
+
+    attr = connStat(connector, path);
+    if(attr == NULL){
+        printf("execTask connStat %s fail\n", path);
+        free(mirrorpath);
+        mirrorpath = NULL;
+        filesession = NULL;
+        return -1;
+    }
+
+    file->attr = *attr;
+
+    rc = _registerCache(mirror->dbsession, &file->attr);
+    if(rc < 0){
+        free(mirrorpath);
+        free(attr);
+        mirrorpath = NULL;
+        filesession = NULL;
+        attr = NULL;
         return -1;
     }
 
     //メモリ解放
     free(mirrorpath);
+    free(attr);
+    mirrorpath = NULL;
+    filesession = NULL;
+    attr = NULL;
     return 0;
 }
 
@@ -857,6 +892,7 @@ void readMirrorRequest(Mirror* mirror){
             if(nread > 0){
                 linebuf = strdup(line);
                 linebuf[nread - 1] = '\0';
+                printf("requesting mirror: %s\n", linebuf);
                 request_mirror(mirror, linebuf);
                 free(linebuf);
             }

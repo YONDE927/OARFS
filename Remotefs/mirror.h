@@ -33,6 +33,7 @@ typedef struct {
 typedef struct MirrorFile {
     char path[256];
     FILE* fp;
+    Attribute attr;
     int size;
     int mtime;
     int atime;

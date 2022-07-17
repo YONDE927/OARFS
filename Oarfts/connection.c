@@ -79,8 +79,8 @@ int acceptSock(int listenfd){
 
 /*client*/
 int getClientSock(char* ip, short port){
-    int rc;
-    int yes;
+    int rc = 0;
+    int yes = 0;
     int sockfd;
     struct sockaddr_in servaddr;
     struct sockaddr_in cliaddr;

@@ -22,6 +22,7 @@ void resetCache(PGconn* session);
 
 int createCacheTable(Cache* cache);
 
+int _registerCache(PGconn* session, Attribute* attr);
 int registerCache(Cache* cache, Attribute* attr);
 int registerDirCache(Cache* cache, char* path, List* attrs);
 Attribute* lookupCache(Cache* cache, char* path);

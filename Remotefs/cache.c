@@ -211,6 +211,33 @@ int createCacheTable(Cache* cache){
     return 0;
 }
 
+int _registerCache(PGconn* session, Attribute* attr){
+    int rc;
+    PGresult* res;
+
+    if(session == NULL){ return -1;}
+
+    char query[1024];
+    sprintf(query, "INSERT INTO Cache VALUES('%s',%ld,%d,%d,%d,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld,%ld) "
+                   "ON CONFLICT (path) DO UPDATE SET size = %ld, mode = %d, uid= %d, gid = %d, "
+                   "blksize = %ld, blocks = %ld, ino = %ld, dev = %ld, rdev = %ld, nlink = %ld, "
+                   "mtime = %ld, atime = %ld, ctime = %ld;",
+            attr->path,attr->st.st_size,attr->st.st_mode,attr->st.st_uid,attr->st.st_gid,attr->st.st_blksize,attr->st.st_blocks,
+            attr->st.st_ino,attr->st.st_dev,attr->st.st_rdev,attr->st.st_nlink,attr->st.st_mtime,attr->st.st_atime,attr->st.st_ctime,
+            attr->st.st_size,attr->st.st_mode,attr->st.st_uid,attr->st.st_gid,attr->st.st_blksize,attr->st.st_blocks,
+            attr->st.st_ino,attr->st.st_dev,attr->st.st_rdev,attr->st.st_nlink,attr->st.st_mtime,attr->st.st_atime,attr->st.st_ctime);
+
+    res = PQexec(session, query);
+    printf("query: %s\n", query);
+    if(PQresultStatus(res) != PGRES_COMMAND_OK){
+        PQclear(res);
+        puts("insert cache error");
+        return -1;
+    };
+    PQclear(res);
+    return 0;
+}
+
 int registerCache(Cache* cache, Attribute* attr){
     int rc;
     PGresult* res;
