@@ -537,22 +537,26 @@ List* requestReaddir(int sockfd, const char* path){
         //レスポンスの受信
         if((ppayload = recvPayload(sockfd)) == NULL){
             freeList(stats, free);
+            puts("receive readdir res fail");
             return NULL;
         }
 
         if(ppayload->header.req != READDIR){
             freeList(stats, free);
             freePayload(ppayload);
+            puts("received header invalid");
             return NULL;
         }
 
         if(ppayload->header.type != YES){
             freeList(stats, free);
             freePayload(ppayload);
+            puts("received type invalid");
             return NULL;
         }
 
         if(ppayload->header.slot1 == -1){
+            puts("received ending entry");
             break;
         }
 
@@ -622,6 +626,7 @@ int responseReaddir(int sockfd, struct Payload request){
     if(dir == NULL){
         response.header.type = NO;
         if(sendPayload(sockfd, response) < 0 ){
+            puts("send readdir res header fail");
             return -1;
         }
         return 0;
@@ -638,7 +643,7 @@ int responseReaddir(int sockfd, struct Payload request){
         strcpy(dstat.path, entry->d_name);
 
         child = pathcata(request.data, entry->d_name);
-        printf("stat('%s', &dstat.st)\n", child);
+        //printf("stat('%s', &dstat.st)\n", child);
         stat(child, &dstat.st);
         free(child);
 
@@ -647,6 +652,7 @@ int responseReaddir(int sockfd, struct Payload request){
         response.data = (char*)&dstat;
         //responseの送信
         if(sendPayload(sockfd, response) < 0){
+            puts("send entry fail");
             return -1;
         }
     }
@@ -658,6 +664,7 @@ int responseReaddir(int sockfd, struct Payload request){
 
     //responseの送信
     if(sendPayload(sockfd, response) < 0){
+        puts("send ending entry fail");
         return -1;
     }
 
