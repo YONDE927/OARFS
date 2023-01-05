@@ -1,0 +1,8 @@
+server_ip 127.0.0.1
+server_port 8080
+remote_root /home/yonde/devs/picdata
+local_root ./local
+mount_point ./mnt
+metacache /home/yonde/devs/ofs/build/cache.db
+mirror_root /home/yonde/devs/ofs/build/mirror
+record_db /home/yonde/devs/ofs/build/record.db
